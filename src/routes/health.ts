@@ -4,7 +4,7 @@ import { testDatabaseConnection } from '../config/database';
 const router = Router();
 
 // Health check endpoint
-router.get('/', async (req, res) => {
+router.get('/', async (req: any, res: any) => {
   try {
     const dbConnected = await testDatabaseConnection();
     
@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
 });
 
 // Deep health check
-router.get('/deep', async (req, res) => {
+router.get('/deep', async (req: any, res: any) => {
   try {
     const checks = {
       database: await testDatabaseConnection(),
@@ -45,7 +45,8 @@ router.get('/deep', async (req, res) => {
       }
     };
     
-    const allHealthy = checks.database && Object.values(checks.environment).every(Boolean);
+    const envValues: boolean[] = Object.values(checks.environment as Record<string, boolean>) as boolean[];
+    const allHealthy = !!checks.database && envValues.every(v => !!v);
     
     res.status(allHealthy ? 200 : 503).json({
       status: allHealthy ? 'healthy' : 'degraded',

@@ -1,6 +1,6 @@
 import { CharacterStats, Character } from '../types/character';
 import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT } from './cnft';
-import { CharacterDatabase, SkillDatabase } from './database';
+import { SkillDatabase, NftColumns } from './database';
 
 // Calculate combat level (Attack + Strength + Defense)
 export function calculateCombatLevel(skills: CharacterStats['skills']): number {
@@ -81,16 +81,8 @@ export class CharacterService {
         }
       };
       
-      // Store in database
-      const dbCharacter = await CharacterDatabase.createCharacter(
-        cnftResult.assetId,
-        playerId,
-        characterStats
-      );
-      
-      if (!dbCharacter) {
-        console.warn('⚠️ Character cNFT created but database storage failed');
-      }
+      // Store initial authoritative NFT row (per-skill columns)
+      await NftColumns.upsertMergeMaxFromStats(cnftResult.assetId, playerPDA, characterStats)
       
       // Initialize skill experience tracking
       await SkillDatabase.getPlayerSkillExperience(playerPDA);
@@ -116,81 +108,33 @@ export class CharacterService {
     }
   }
   
-  // Fetch character (try database first, then cNFT)
+  // Fetch character (prefer cNFT state first to get latest skill levels)
   static async getCharacter(assetId: string): Promise<Character | null> {
     try {
-      console.log(`🔍 Fetching character: ${assetId}`);
-      
-      // Try database first for faster response
-      const dbCharacter = await CharacterDatabase.getCharacterByCnftId(assetId);
-      
-      if (dbCharacter) {
-        console.log('✅ Character found in database');
-        
-        // Convert database format to CharacterStats
-        const characterStats: CharacterStats = {
-          name: dbCharacter.character_name,
-          level: dbCharacter.character_level,
-          combatLevel: dbCharacter.combat_level,
-          totalLevel: dbCharacter.total_level,
-          characterClass: dbCharacter.character_class,
-          version: dbCharacter.version,
-          stats: {
-            str: dbCharacter.strength,
-            agi: dbCharacter.agility,
-            int: dbCharacter.intelligence,
-            vit: dbCharacter.vitality,
-            luk: dbCharacter.luck
-          },
-          experience: dbCharacter.experience,
-          skills: {
-            attack: { level: 1, experience: 0 },
-            strength: { level: 1, experience: 0 },
-            defense: { level: 1, experience: 0 },
-            magic: { level: 1, experience: 0 },
-            projectiles: { level: 1, experience: 0 },
-            vitality: { level: 1, experience: 0 },
-            crafting: { level: 1, experience: 0 },
-            luck: { level: 1, experience: 0 },
-            gathering: { level: 1, experience: 0 }
-          },
-          skillExperience: {
-            attack: 0,
-            strength: 0,
-            defense: 0,
-            magic: 0,
-            projectiles: 0,
-            vitality: 0,
-            crafting: 0,
-            luck: 0,
-            gathering: 0
-          },
-          achievements: dbCharacter.achievements,
-          equipment: {
-            weapon: dbCharacter.equipped_weapon || 'None',
-            armor: dbCharacter.equipped_armor || 'None',
-            accessory: dbCharacter.equipped_accessory || 'None'
-          }
-        };
-        
-        return {
-          id: assetId,
-          characterStats,
-          lastSynced: new Date(dbCharacter.last_synced_to_cnft || dbCharacter.updated_at)
-        };
-      }
-      
-      // Fallback to cNFT if not in database
-      console.log('⚠️ Character not in database, fetching from cNFT...');
+      console.log(`🔍 Fetching character (chain-first): ${assetId}`);
+
+      // Prefer on-chain state so skill levels never regress to DB defaults
       const cnftCharacter = await fetchCharacterFromCNFT(assetId);
-      
       if (cnftCharacter) {
-        console.log('✅ Character fetched from cNFT, syncing to database...');
-        // Sync to database for future fast access
-        await CharacterDatabase.updateCharacter(assetId, cnftCharacter.characterStats);
+        console.log(`📝 [getCharacter] Upserting fetched on-chain character assetId=${assetId}`)
+        void NftColumns.upsertMergeMaxFromStats(assetId, null, cnftCharacter.characterStats)
+        // If DB row exists, prefer it for return to avoid any gateway lag
+        const row = await NftColumns.get(assetId)
+        if (row) {
+          const stats = NftColumns.columnsToStats(row)
+          return { id: assetId, characterStats: stats, lastSynced: new Date(row.updated_at) }
+        }
+        return cnftCharacter;
+      }
+
+      // Fallback to column store if chain read fails
+      const row = await NftColumns.get(assetId)
+      if (row) {
+        const stats = NftColumns.columnsToStats(row)
+        return { id: assetId, characterStats: stats, lastSynced: new Date(row.updated_at) }
       }
       
-      return cnftCharacter;
+      return null;
       
     } catch (error) {
       console.error('❌ Error fetching character:', error);
@@ -207,21 +151,42 @@ export class CharacterService {
     try {
       console.log(`⚔️ Training ${skillName} for character: ${assetId}`);
       
-      // Get current character
-      const character = await this.getCharacter(assetId);
+      // Always read current state from chain to avoid stale/default DB values
+      const character = await fetchCharacterFromCNFT(assetId);
       if (!character) {
         return {
           success: false,
           error: 'Character not found'
         };
       }
-      
-      // Update skill level
+      // Determine baseline from BOTH chain and DB so chain lag doesn't cap at 2
+      const dbRow = await NftColumns.get(assetId);
+      const dbLevelMap: Partial<Record<keyof CharacterStats['skills'], number>> | null = dbRow
+        ? {
+            attack: dbRow.att,
+            strength: dbRow.str,
+            defense: dbRow.def,
+            magic: dbRow.mag,
+            projectiles: dbRow.pro,
+            vitality: dbRow.vit,
+            crafting: dbRow.cra,
+            luck: dbRow.luc,
+            gathering: dbRow.gat,
+          }
+        : null;
+
+      const chainLevel = character.characterStats.skills[skillName]?.level ?? 1;
+      const dbLevel = dbLevelMap?.[skillName] ?? 1;
+      const currentLevel = Math.max(chainLevel, dbLevel, 1);
+      const SKILL_CAP = 99;
+      const nextLevel = Math.min(currentLevel + 1, SKILL_CAP);
+
+      // Update skill level (clamped)
       const updatedSkills = {
         ...character.characterStats.skills,
         [skillName]: {
-          level: character.characterStats.skills[skillName].level + 1,
-          experience: (character.characterStats.skills[skillName].level + 1) * 100
+          level: nextLevel,
+          experience: nextLevel * 100
         }
       };
       
@@ -238,6 +203,9 @@ export class CharacterService {
         version: '2.0.0' // Mark as current version
       };
       
+      // Persist authoritative state first (column model)
+      const upserted = await NftColumns.upsertMergeMaxFromStats(assetId, playerPDA || null, updatedCharacterStats)
+      
       // Update cNFT
       const cnftResult = await updateCharacterCNFT(
         assetId,
@@ -252,20 +220,14 @@ export class CharacterService {
         };
       }
       
-      // Update database
-      await CharacterDatabase.updateCharacter(assetId, updatedCharacterStats);
-      
-      const updatedCharacter: Character = {
-        id: assetId,
-        characterStats: updatedCharacterStats,
-        lastSynced: new Date()
-      };
-      
-      console.log(`✅ ${skillName} trained successfully! New level: ${updatedSkills[skillName].level}`);
-      return {
-        success: true,
-        character: updatedCharacter
-      };
+      // Re-fetch from chain so returned state reflects the new Arweave JSON
+      const refreshed = await fetchCharacterFromCNFT(assetId);
+      if (refreshed) {
+        console.log(`✅ ${skillName} trained successfully! New level: ${updatedSkills[skillName].level}`);
+        return { success: true, character: refreshed };
+      }
+      // Fallback to local computed state if chain read fails
+      return { success: true, character: { id: assetId, characterStats: updatedCharacterStats, lastSynced: new Date() } };
       
     } catch (error) {
       console.error(`❌ Error training ${skillName}:`, error);
@@ -323,8 +285,8 @@ export class CharacterService {
         };
       }
       
-      // Update database
-      await CharacterDatabase.updateCharacter(assetId, updatedCharacterStats);
+      // Persist to column store
+      await NftColumns.upsertMergeMaxFromStats(assetId, playerPDA || null, updatedCharacterStats)
       
       const updatedCharacter: Character = {
         id: assetId,
@@ -352,12 +314,26 @@ export class CharacterService {
     try {
       console.log(`🔍 Fetching characters for player: ${playerId}`);
       
-      const dbCharacters = await CharacterDatabase.getCharactersByPlayerId(playerId);
+      // Profiles hold asset IDs; we no longer read legacy characters table here.
+      const { supabase } = await import('../config/database')
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
+        .eq('id', playerId)
+        .single()
+      const assetIds: string[] = [
+        profile?.character_cnft_1,
+        profile?.character_cnft_2,
+        profile?.character_cnft_3,
+        profile?.character_cnft_4,
+        profile?.character_cnft_5,
+      ].filter(Boolean)
+      console.log(`🧾 [getPlayerCharacters] assetIds=${assetIds.join(',') || 'none'}`)
       
       const characters: Character[] = [];
       
-      for (const dbChar of dbCharacters) {
-        const character = await this.getCharacter(dbChar.character_cnft_id);
+      for (const assetId of assetIds) {
+        const character = await this.getCharacter(assetId);
         if (character) {
           characters.push(character);
         }
@@ -383,16 +359,9 @@ export class CharacterService {
         return false;
       }
       
-      const success = await CharacterDatabase.updateCharacter(
-        assetId,
-        cnftCharacter.characterStats
-      );
-      
-      if (success) {
-        console.log('✅ Character synced from cNFT to database');
-      }
-      
-      return success;
+      await NftColumns.upsertFromStats(assetId, null, cnftCharacter.characterStats)
+      console.log('✅ Character synced from cNFT to database');
+      return true;
       
     } catch (error) {
       console.error('❌ Error syncing character from cNFT:', error);

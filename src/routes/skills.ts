@@ -20,7 +20,7 @@ const markSyncedSchema = z.object({
 });
 
 // GET /api/skills/:playerPDA - Get player skill experience
-router.get('/:playerPDA', async (req, res) => {
+router.get('/:playerPDA', async (req: any, res: any) => {
   try {
     const { playerPDA } = req.params;
     
@@ -57,7 +57,7 @@ router.get('/:playerPDA', async (req, res) => {
 });
 
 // POST /api/skills/add-experience - Add experience to a skill
-router.post('/add-experience', async (req, res) => {
+router.post('/add-experience', async (req: any, res: any) => {
   try {
     const validatedData = addExperienceSchema.parse(req.body);
     
@@ -108,7 +108,7 @@ router.post('/add-experience', async (req, res) => {
 });
 
 // POST /api/skills/mark-synced - Mark skills as synced to blockchain
-router.post('/mark-synced', async (req, res) => {
+router.post('/mark-synced', async (req: any, res: any) => {
   try {
     const validatedData = markSyncedSchema.parse(req.body);
     
@@ -147,7 +147,7 @@ router.post('/mark-synced', async (req, res) => {
 });
 
 // GET /api/skills/pending-sync - Get players with pending sync
-router.get('/admin/pending-sync', async (req, res) => {
+router.get('/admin/pending-sync', async (req: any, res: any) => {
   try {
     console.log('🔍 Fetching players with pending sync...');
     
@@ -169,7 +169,7 @@ router.get('/admin/pending-sync', async (req, res) => {
 });
 
 // GET /api/skills/leaderboard/:skill - Get skill leaderboard
-router.get('/leaderboard/:skill', async (req, res) => {
+router.get('/leaderboard/:skill', async (req: any, res: any) => {
   try {
     const { skill } = req.params;
     const limit = parseInt(req.query.limit as string) || 100;
@@ -218,7 +218,7 @@ router.get('/leaderboard/:skill', async (req, res) => {
 });
 
 // GET /api/skills/total-level-rankings - Get total level rankings
-router.get('/rankings/total-level', async (req, res) => {
+router.get('/rankings/total-level', async (req: any, res: any) => {
   try {
     const limit = parseInt(req.query.limit as string) || 100;
     
@@ -257,7 +257,7 @@ router.get('/rankings/total-level', async (req, res) => {
 });
 
 // POST /api/skills/calculate-level - Calculate level from experience
-router.post('/calculate-level', async (req, res) => {
+router.post('/calculate-level', async (req: any, res: any) => {
   try {
     const { experience } = req.body;
     

@@ -1,9 +1,26 @@
 import { Router } from 'express';
+import crypto from 'crypto'
 import { z } from 'zod';
-import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT } from '../services/cnft';
+import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT, findLatestAssetIdForOwner, getAssetMetadataDebug, generateDefaultCharacterStats } from '../services/cnft';
 import { CharacterService } from '../services/character';
-import { MetadataStore } from '../services/database';
+import { MetadataStore, NftColumns } from '../services/database';
 import { supabase } from '../config/database';
+import { addSkillXp, getAllSkillXp, getXpBounds, computeProgress } from '../services/nft-skill-experience';
+
+// Lightweight XP action rules. Keep server-authoritative, don't trust client-provided XP.
+const XP_ACTION_RULES = {
+  enemy_kill_basic: { skill: 'attack', baseXp: 25 },
+  enemy_kill_magic: { skill: 'magic', baseXp: 25 },
+  enemy_kill_ranged: { skill: 'projectiles', baseXp: 25 },
+  boss_kill: { skill: 'attack', baseXp: 500 },
+  gather_resource: { skill: 'gathering', baseXp: 15 },
+  craft_item_common: { skill: 'crafting', baseXp: 40 },
+  craft_item_rare: { skill: 'crafting', baseXp: 120 },
+  complete_dungeon: { skill: 'vitality', baseXp: 300 },
+  perfect_clear: { skill: 'defense', baseXp: 200 },
+  luck_find: { skill: 'luck', baseXp: 30 },
+} as const
+type XpActionKey = keyof typeof XP_ACTION_RULES
 
 const router = Router();
 
@@ -11,7 +28,8 @@ const router = Router();
 const CreateCharacterSchema = z.object({
   playerPDA: z.string(),
   characterName: z.string().min(1).max(50),
-  characterClass: z.string().optional().default('Adventurer')
+  characterClass: z.string().optional().default('Adventurer'),
+  slot: z.number().int().min(1).max(5).optional()
 });
 
 const UpdateCNFTMetadataSchema = z.object({
@@ -73,6 +91,56 @@ const TrainSkillSchema = z.object({
   playerPDA: z.string().optional()
 });
 
+const AddSkillXpSchema = z.object({
+  assetId: z.string(),
+  skillName: z.enum(['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'gathering']),
+  xpGain: z.number().min(1),
+  playerPDA: z.string().optional(),
+  source: z.string().optional(),
+  sessionId: z.string().uuid().optional(),
+  gameMode: z.string().optional(),
+  additionalData: z.any().optional(),
+  idempotencyKey: z.string().optional(),
+});
+
+const AwardActionSchema = z.object({
+  assetId: z.string(),
+  actionKey: z.enum(Object.keys(XP_ACTION_RULES) as [XpActionKey, ...XpActionKey[]]),
+  quantity: z.number().int().positive().optional(),
+  difficultyMultiplier: z.number().positive().optional(),
+  playerPDA: z.string().optional(),
+  sessionId: z.string().uuid().optional(),
+  gameMode: z.string().optional(),
+  idempotencyKey: z.string().optional(),
+})
+
+// --- Security helpers ---
+function hasValidApiKey(req: any): boolean {
+  const expected = process.env.XP_API_KEY
+  if (!expected) return false
+  const provided = req.get('x-api-key') || req.get('X-API-Key')
+  return Boolean(provided && provided === expected)
+}
+
+function verifyHmacSignature(payload: string, signature: string | undefined): boolean {
+  const secret = process.env.XP_SIGNING_SECRET
+  if (!secret || !signature) return false
+  const h = crypto.createHmac('sha256', secret).update(payload).digest('hex')
+  try {
+    return crypto.timingSafeEqual(Buffer.from(h), Buffer.from(signature))
+  } catch {
+    return false
+  }
+}
+
+async function assertAssetOwnedByPda(assetId: string, playerPDA?: string | null) {
+  const row = await NftColumns.get(assetId)
+  if (!row) throw new Error('Unknown assetId')
+  if (playerPDA && row.player_pda && row.player_pda !== playerPDA) {
+    throw new Error('Asset ownership mismatch')
+  }
+}
+
 const LevelUpStatSchema = z.object({
   assetId: z.string(),
   statName: z.enum(['str', 'agi', 'int', 'vit', 'luk']),
@@ -80,22 +148,60 @@ const LevelUpStatSchema = z.object({
 });
 
 // POST /api/characters/create
-router.post('/create', async (req, res) => {
+router.post('/create', async (req: any, res: any) => {
   try {
-    const { playerPDA, characterName, characterClass } = CreateCharacterSchema.parse(req.body);
+    const { playerPDA, characterName, characterClass, slot } = CreateCharacterSchema.parse(req.body);
     
     console.log('🎯 Creating character:', { playerPDA, characterName, characterClass });
     
     const result = await createCharacterCNFT(playerPDA, characterName, characterClass);
     
     if (result.success) {
-      // Update Supabase with the asset ID (exactly like frontend)
-      if (result.assetId) {
+      // Try to resolve assetId immediately if missing using Helius (fast) or RPC log heuristic
+      let resolvedId: string | undefined = result.assetId
+      if (!resolvedId && (result as any).signature) {
+        try {
+          const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 8080}`).replace(/\/$/, '')
+          // Prefer Helius resolver
+          const hRes = await fetch(`${base}/api/das/resolve-from-signature`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ signature: (result as any).signature, playerPDA })
+          })
+          const hJson: any = await hRes.json().catch(() => ({}))
+          if (hRes.ok && hJson?.assetId) {
+            resolvedId = hJson.assetId
+            console.log('🆔 Immediate resolve via Helius in route:', resolvedId)
+          } else {
+            // Fall back to RPC log heuristic
+            const xRes = await fetch(`${base}/api/das/extract-asset-id`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ signature: (result as any).signature, playerPDA })
+            })
+            const xJson: any = await xRes.json().catch(() => ({}))
+            if (xRes.ok && xJson?.assetId) {
+              resolvedId = xJson.assetId
+              console.log('🆔 Immediate resolve via RPC heuristic in route:', resolvedId)
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Immediate resolve failed in route:', e)
+        }
+      }
+
+      // Update Supabase with the asset ID (slot 1 if empty)
+      if (resolvedId) {
+        // Seed authoritative DB row so UI can read from DB immediately
+        try {
+          const seedStats = generateDefaultCharacterStats(characterName, characterClass || 'Adventurer')
+          await NftColumns.upsertMergeMaxFromStats(resolvedId, playerPDA, seedStats, null, (result as any)?.signature || null)
+        } catch (seedErr) {
+          console.warn('⚠️ Failed to seed nfts row:', seedErr)
+        }
         try {
           // Find the player by PDA and update with the new character asset ID
           const { data: profile, error: fetchError } = await supabase
             .from('profiles')
-            .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
+            .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
             .eq('player_pda', playerPDA)
             .single();
           
@@ -103,16 +209,23 @@ router.post('/create', async (req, res) => {
             // Find the next available character slot
             let updateData: any = {};
             
-            if (!profile.character_cnft_1) {
-              updateData.character_cnft_1 = result.assetId;
-            } else if (!profile.character_cnft_2) {
-              updateData.character_cnft_2 = result.assetId;
-            } else if (!profile.character_cnft_3) {
-              updateData.character_cnft_3 = result.assetId;
-            } else if (!profile.character_cnft_4) {
-              updateData.character_cnft_4 = result.assetId;
-            } else if (!profile.character_cnft_5) {
-              updateData.character_cnft_5 = result.assetId;
+            // If client requested a slot and it's empty, respect it
+            type SlotKey = `character_cnft_${1|2|3|4|5}`
+            if (slot) {
+              const slotKey = (`character_cnft_${slot}` as unknown) as SlotKey
+              if (!(profile as any)[slotKey]) {
+                (updateData as any)[slotKey] = resolvedId
+              }
+            }
+            if (Object.keys(updateData).length > 0 && !profile.active_character_slot) {
+              if (!profile.active_character_slot) updateData.active_character_slot = slot;
+            } else if (Object.keys(updateData).length === 0) {
+              // Otherwise use first available
+              if (!profile.character_cnft_1) updateData.character_cnft_1 = resolvedId;
+              else if (!profile.character_cnft_2) updateData.character_cnft_2 = resolvedId;
+              else if (!profile.character_cnft_3) updateData.character_cnft_3 = resolvedId;
+              else if (!profile.character_cnft_4) updateData.character_cnft_4 = resolvedId;
+              else if (!profile.character_cnft_5) updateData.character_cnft_5 = resolvedId;
             }
             
             if (Object.keys(updateData).length > 0) {
@@ -124,7 +237,7 @@ router.post('/create', async (req, res) => {
               if (updateError) {
                 console.error('⚠️ Failed to update Supabase with asset ID:', updateError);
               } else {
-                console.log('✅ Updated Supabase with asset ID:', result.assetId);
+                console.log('✅ Updated Supabase with asset ID:', resolvedId);
               }
             } else {
               console.log('⚠️ All character slots are full');
@@ -135,6 +248,61 @@ router.post('/create', async (req, res) => {
         } catch (supabaseError) {
           console.error('⚠️ Supabase update error:', supabaseError);
         }
+      } else {
+        // Background resolve + save once DAS returns the real assetId
+        (async () => {
+          try {
+            console.log('⏳ Background DAS resolve for Supabase save...');
+            const timeoutMs = Number(process.env.DAS_BACKGROUND_TIMEOUT_MS || 120000);
+            const intervalMs = Number(process.env.DAS_BACKGROUND_INTERVAL_MS || 5000);
+            const start = Date.now();
+            let resolved: string | null = null;
+            while (Date.now() - start < timeoutMs) {
+              resolved = await findLatestAssetIdForOwner(playerPDA);
+              if (resolved) break;
+              await new Promise(r => setTimeout(r, intervalMs));
+            }
+            if (!resolved) {
+              console.warn('⚠️ Background resolve timed out; nothing saved to Supabase');
+              return;
+            }
+            // Seed DB row too
+            try {
+              const seedStats = generateDefaultCharacterStats(characterName, characterClass || 'Adventurer')
+              await NftColumns.upsertMergeMaxFromStats(resolved, playerPDA, seedStats, null, (result as any)?.signature || null)
+            } catch (seedErr) {
+              console.warn('⚠️ Background seed nfts row failed:', seedErr)
+            }
+            const { data: profile, error: fetchError } = await supabase
+              .from('profiles')
+              .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
+              .eq('player_pda', playerPDA)
+              .single();
+            if (fetchError) {
+              console.error('⚠️ Background Supabase fetch error:', fetchError);
+              return;
+            }
+            if (!profile) return;
+            const updateData: any = {};
+            if (!profile.character_cnft_1) updateData.character_cnft_1 = resolved;
+            else if (!profile.character_cnft_2) updateData.character_cnft_2 = resolved;
+            else if (!profile.character_cnft_3) updateData.character_cnft_3 = resolved;
+            else if (!profile.character_cnft_4) updateData.character_cnft_4 = resolved;
+            else if (!profile.character_cnft_5) updateData.character_cnft_5 = resolved;
+            if (Object.keys(updateData).length === 0) {
+              console.log('ℹ️ Background resolve: all character slots full; skipping save');
+              return;
+            }
+            const { error: updateError } = await supabase
+              .from('profiles')
+              .update(updateData)
+              .eq('player_pda', playerPDA);
+            if (updateError) console.error('⚠️ Background Supabase update error:', updateError);
+            else console.log('✅ Background saved resolved assetId to Supabase:', resolved);
+          } catch (bgErr) {
+            console.error('⚠️ Background resolve/save error:', bgErr);
+          }
+        })();
       }
       
       res.json({
@@ -157,8 +325,20 @@ router.post('/create', async (req, res) => {
   }
 });
 
+// GET /api/characters/:assetId/debug
+router.get('/:assetId/debug', async (req: any, res: any) => {
+  try {
+    const { assetId } = req.params;
+    const dbg = await getAssetMetadataDebug(assetId);
+    return res.json({ success: true, debug: dbg });
+  } catch (error) {
+    console.error('❌ Character debug fetch error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch debug info' });
+  }
+});
+
 // POST /api/characters/update-cnft-metadata
-router.post('/update-cnft-metadata', async (req, res) => {
+router.post('/update-cnft-metadata', async (req: any, res: any) => {
   try {
     const { assetId, characterStats, playerPDA } = UpdateCNFTMetadataSchema.parse(req.body);
     
@@ -188,28 +368,64 @@ router.post('/update-cnft-metadata', async (req, res) => {
 });
 
 // GET /api/characters/:assetId
-router.get('/:assetId', async (req, res) => {
+router.get('/:assetId', async (req: any, res: any) => {
   try {
     const { assetId } = req.params;
-    
-    console.log('🔍 Fetching character:', assetId);
-    
-    const character = await fetchCharacterFromCNFT(assetId);
-    
-    if (character) {
-      res.json({
-        success: true,
-        character
-      });
+    const source = (req.query?.source || '').toString();
+    console.log('🔍 Fetching character:', assetId, source ? `(source=${source})` : '');
+
+    let character = null as any;
+    if (source === 'db') {
+      // DB-first: return authoritative merged state from nfts table
+      try {
+        const row = await NftColumns.get(assetId)
+        if (row) {
+          const stats = NftColumns.columnsToStats(row)
+          character = { id: assetId, characterStats: stats, lastSynced: new Date(row.updated_at) }
+        }
+      } catch (e) {
+        console.warn('⚠️ DB fetch failed, falling back to chain:', e)
+      }
+      if (!character) {
+        // Soft fallback if DB missing
+        character = await CharacterService.getCharacter(assetId)
+      }
     } else {
-      res.status(404).json({
-        success: false,
-        error: 'Character not found'
-      });
+      // Default to chain-first to ensure skills reflect the latest attributes
+      character = await fetchCharacterFromCNFT(assetId);
+      // Soft fallback to DB if chain failed (e.g., temporary RPC/DAS outage)
+      if (!character) character = await CharacterService.getCharacter(assetId);
     }
+
+    if (character) {
+      // Augment with per-skill XP progress from DB if available
+      try {
+        const skillXp = await getAllSkillXp(assetId)
+        const skills = character.characterStats?.skills || {}
+        const enriched: any = {}
+        for (const key of Object.keys(skills)) {
+          const k = key as keyof typeof skills
+          const rec: any = (skillXp as any)[k]
+          if (rec) {
+            const prog = computeProgress(rec.experience)
+            enriched[k] = {
+              level: skills[k]?.level ?? prog.level,
+              experience: rec.experience,
+              xpForCurrentLevel: prog.xpForCurrentLevel,
+              xpForNextLevel: prog.xpForNextLevel,
+              progressPct: prog.progressPct,
+            }
+          }
+        }
+        character = { ...character, characterStats: { ...character.characterStats, skills: { ...character.characterStats.skills, ...enriched } } }
+      } catch {}
+      return res.json({ success: true, character });
+    }
+
+    return res.status(404).json({ success: false, error: 'Character not found' });
   } catch (error) {
     console.error('❌ Fetch character error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch character'
     });
@@ -217,18 +433,29 @@ router.get('/:assetId', async (req, res) => {
 });
 
 // POST /api/characters/fetch-player-cnfts-simple
-router.post('/fetch-player-cnfts-simple', async (req, res) => {
+router.post('/fetch-player-cnfts-simple', async (req: any, res: any) => {
   try {
     const { playerId } = FetchPlayerCNFTsSchema.parse(req.body);
     
     console.log('🔍 Fetching player cNFTs for playerId:', playerId);
     
     // Get the user profile from Supabase to find character asset IDs
-    const { data: profile, error: profileError } = await supabase
+    // Try by player_pda first; if not found, try by user id
+    let { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, player_pda')
       .eq('player_pda', playerId)
       .single();
+
+    if (profileError || !profile) {
+      const alt = await supabase
+        .from('profiles')
+        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, player_pda')
+        .eq('id', playerId)
+        .single();
+      profile = alt.data as any;
+      profileError = alt.error as any;
+    }
 
     console.log('📊 Supabase query result:');
     console.log('- Profile data:', profile);
@@ -256,70 +483,88 @@ router.post('/fetch-player-cnfts-simple', async (req, res) => {
     console.log('🎯 Asset IDs found:', assetIds);
 
     if (assetIds.length === 0) {
-      console.log('📋 No character asset IDs found in profile');
-      return res.json({
-        success: true,
-        characters: []
-      });
+      console.log('📋 No character asset IDs found in profile; falling back to DAS search (owner)');
+      try {
+        const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || '';
+        if (rpcUrl) {
+          const body: any = {
+            jsonrpc: '2.0', id: 'getAssetsByOwner', method: 'getAssetsByOwner', params: { ownerAddress: playerId, page: 1, limit: 50 }
+          };
+          const rpcRes = await fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          const json: any = await rpcRes.json();
+          const items: any[] = json?.result?.items || [];
+          const characters: any[] = [];
+          for (const a of items) {
+            const id = a?.id;
+            if (!id) continue;
+            const c = await fetchCharacterFromCNFT(id);
+            if (c) characters.push(c);
+          }
+          return res.json({ success: true, characters });
+        }
+      } catch (e) {
+        console.warn('⚠️ DAS owner fallback failed:', e);
+      }
+      return res.json({ success: true, characters: [] });
     }
 
-    // Fetch character data for each asset ID
-    const characters = [];
+    // Fetch character data for each asset ID (prefer DB, fallback to chain)
+    const characters: any[] = [];
     for (const assetId of assetIds) {
       try {
         console.log(`🔄 Fetching REAL character data for asset: ${assetId}`);
-        
-        // Fetch the actual cNFT data from the blockchain
+
+        // 1) Prefer DB row so UI shows authoritative merged skills immediately
+        const row = await NftColumns.get(assetId)
+        if (row) {
+          const stats = NftColumns.columnsToStats(row)
+          characters.push({ id: assetId, characterStats: stats, lastSynced: new Date(row.updated_at) })
+          console.log(`✅ Returned DB snapshot for asset: ${assetId}`)
+          continue
+        }
+
+        // 2) Fallback to on-chain, then upsert so later reads come from DB
         const character = await fetchCharacterFromCNFT(assetId);
         if (character) {
+          const playerPdaForRow = profile?.player_pda || null
+          console.log(`📝 [fetch-player-cnfts-simple] Upserting row assetId=${assetId} playerPDA=${playerPdaForRow ?? 'null'}`)
+          void NftColumns.upsertMergeMaxFromStats(assetId, playerPdaForRow, character.characterStats)
           characters.push(character);
-          console.log(`✅ REAL Character fetched: ${character.characterStats?.name || 'Unknown'}`);
+          console.log(`✅ Chain snapshot fetched: ${character.characterStats?.name || 'Unknown'}`);
         } else {
           console.warn(`⚠️ Could not fetch character data for asset: ${assetId}`);
-          // Add a fallback placeholder if cNFT fetch fails
-          const fallbackCharacter = {
+          // Keep UI resilient: add a minimal placeholder so the card renders
+          characters.push({
             id: assetId,
             characterStats: {
-              name: `Character ${assetId.slice(-4)} (Failed to Load)`,
-              level: 0,
-              combatLevel: 0,
-              totalLevel: 0,
-              characterClass: 'Unknown',
+              name: `Character ${assetId.slice(-4)} (Loading)`,
+              level: 1,
+              combatLevel: 1,
+              totalLevel: 1,
+              characterClass: 'Adventurer',
               version: '2.0.0',
-              stats: { str: 0, agi: 0, int: 0, vit: 0, luk: 0 },
+              stats: { str: 10, agi: 10, int: 10, vit: 10, luk: 10 },
               experience: 0,
               skills: {
-                attack: { level: 0, experience: 0 },
-                strength: { level: 0, experience: 0 },
-                defense: { level: 0, experience: 0 },
-                magic: { level: 0, experience: 0 },
-                projectiles: { level: 0, experience: 0 },
-                vitality: { level: 0, experience: 0 },
-                crafting: { level: 0, experience: 0 },
-                luck: { level: 0, experience: 0 },
-                gathering: { level: 0, experience: 0 }
+                attack: { level: 1, experience: 0 },
+                strength: { level: 1, experience: 0 },
+                defense: { level: 1, experience: 0 },
+                magic: { level: 1, experience: 0 },
+                projectiles: { level: 1, experience: 0 },
+                vitality: { level: 1, experience: 0 },
+                crafting: { level: 1, experience: 0 },
+                luck: { level: 1, experience: 0 },
+                gathering: { level: 1, experience: 0 }
               },
               skillExperience: {
-                attack: 0,
-                strength: 0,
-                defense: 0,
-                magic: 0,
-                projectiles: 0,
-                vitality: 0,
-                crafting: 0,
-                luck: 0,
-                gathering: 0
+                attack: 0, strength: 0, defense: 0, magic: 0,
+                projectiles: 0, vitality: 0, crafting: 0, luck: 0, gathering: 0
               },
               achievements: [],
-              equipment: {
-                weapon: 'None',
-                armor: 'None',
-                accessory: 'None'
-              }
+              equipment: { weapon: 'None', armor: 'None', accessory: 'None' }
             },
             lastSynced: new Date()
-          };
-          characters.push(fallbackCharacter);
+          });
         }
       } catch (error) {
         console.error(`❌ Error fetching character ${assetId}:`, error);
@@ -342,7 +587,7 @@ router.post('/fetch-player-cnfts-simple', async (req, res) => {
 });
 
 // POST /api/characters/train-skill
-router.post('/train-skill', async (req, res) => {
+router.post('/train-skill', async (req: any, res: any) => {
   try {
     const { assetId, skillName, playerPDA } = TrainSkillSchema.parse(req.body);
     
@@ -371,8 +616,59 @@ router.post('/train-skill', async (req, res) => {
   }
 });
 
+// POST /api/characters/add-skill-xp
+router.post('/add-skill-xp', async (req: any, res: any) => {
+  try {
+    // Require server-to-server key for direct XP grants
+    if (!hasValidApiKey(req)) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' })
+    }
+    const { assetId, skillName, xpGain, playerPDA, source, sessionId, gameMode, additionalData, idempotencyKey } = AddSkillXpSchema.parse(req.body)
+    await assertAssetOwnedByPda(assetId, playerPDA)
+    const result = await addSkillXp(assetId, skillName, xpGain, { idempotencyKey, playerPDA, source, sessionId, gameMode, additionalData })
+    return res.json({ success: true, ...result })
+  } catch (error) {
+    console.error('❌ Add skill XP error:', error)
+    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' })
+  }
+})
+
+// POST /api/characters/award-action
+router.post('/award-action', async (req: any, res: any) => {
+  try {
+    const { assetId, actionKey, quantity, difficultyMultiplier, playerPDA, sessionId, gameMode, idempotencyKey } = AwardActionSchema.parse(req.body)
+    // Allow either API key OR HMAC-signed request for client-facing calls
+    const ts = String(req.get('x-xp-timestamp') || '')
+    const sig = req.get('x-xp-signature') || ''
+    const now = Date.now()
+    const withinWindow = ts && Math.abs(now - Number(ts)) < 60_000 // 60s
+    const basePayload = `${assetId}|${actionKey}|${Math.max(1, Math.floor(quantity || 1))}|${Number(difficultyMultiplier || 1)}|${ts}`
+    const signedOk = withinWindow && verifyHmacSignature(basePayload, sig)
+    if (!hasValidApiKey(req) && !signedOk) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' })
+    }
+    await assertAssetOwnedByPda(assetId, playerPDA)
+    const rule = XP_ACTION_RULES[actionKey]
+    const base = rule.baseXp
+    const qty = Math.max(1, Math.floor(quantity || 1))
+    const diff = Math.max(0.1, Math.min(10, Number(difficultyMultiplier || 1)))
+    const xpGain = Math.max(1, Math.floor(base * qty * diff))
+    const source = `action:${actionKey}`
+    const result = await addSkillXp(assetId, rule.skill as any, xpGain, { idempotencyKey, playerPDA, source, sessionId, gameMode, additionalData: { qty, diff } })
+    return res.json({ success: true, rule: { actionKey, skill: rule.skill, baseXp: rule.baseXp }, computed: { xpGain, qty, diff }, ...result })
+  } catch (error) {
+    console.error('❌ Award action error:', error)
+    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' })
+  }
+})
+
+// GET /api/characters/xp-actions (for client introspection/debug)
+router.get('/xp-actions/list', async (_req: any, res: any) => {
+  res.json({ success: true, actions: XP_ACTION_RULES })
+})
+
 // POST /api/characters/level-up-stat
-router.post('/level-up-stat', async (req, res) => {
+router.post('/level-up-stat', async (req: any, res: any) => {
   try {
     const { assetId, statName, playerPDA } = LevelUpStatSchema.parse(req.body);
     

@@ -1,0 +1,271 @@
+import { Client as PgClient } from 'pg'
+import { supabase } from '../config/database'
+import { NftColumns } from './database'
+import { CharacterStats } from '../types/character'
+
+export type CharacterSkill = 'attack' | 'strength' | 'defense' | 'magic' | 'projectiles' | 'vitality' | 'crafting' | 'luck' | 'gathering'
+
+type XpProgress = {
+  level: number
+  experience: number
+  xpForCurrentLevel: number
+  xpForNextLevel: number
+  progressPct: number
+}
+
+const MAX_LEVEL = 99
+
+function computeOsrsThresholds(maxLevel: number): number[] {
+  const thresholds: number[] = new Array(maxLevel + 1).fill(0)
+  let points = 0
+  for (let level = 1; level <= maxLevel; level++) {
+    points += Math.floor(level + 300 * Math.pow(2, level / 7))
+    thresholds[level] = Math.floor(points / 4)
+  }
+  thresholds[1] = 0
+  return thresholds
+}
+
+const XP_THRESHOLDS = computeOsrsThresholds(MAX_LEVEL)
+
+export function levelToXp(level: number): number {
+  const l = Math.max(1, Math.min(MAX_LEVEL, Math.floor(level)))
+  return XP_THRESHOLDS[l]
+}
+
+export function xpToLevel(experience: number): number {
+  if (!Number.isFinite(experience) || experience <= 0) return 1
+  let low = 1
+  let high = MAX_LEVEL
+  while (low < high) {
+    const mid = Math.floor((low + high + 1) / 2)
+    if (XP_THRESHOLDS[mid] <= experience) low = mid
+    else high = mid - 1
+  }
+  return Math.max(1, Math.min(MAX_LEVEL, low))
+}
+
+export function getXpBounds(level: number): { xpForCurrentLevel: number; xpForNextLevel: number } {
+  const l = Math.max(1, Math.min(MAX_LEVEL, Math.floor(level)))
+  const current = XP_THRESHOLDS[l]
+  const next = l >= MAX_LEVEL ? XP_THRESHOLDS[MAX_LEVEL] : XP_THRESHOLDS[l + 1]
+  return { xpForCurrentLevel: current, xpForNextLevel: next }
+}
+
+export function computeProgress(experience: number): XpProgress {
+  const level = xpToLevel(experience)
+  const { xpForCurrentLevel, xpForNextLevel } = getXpBounds(level)
+  const span = Math.max(1, xpForNextLevel - xpForCurrentLevel)
+  const clamped = Math.max(xpForCurrentLevel, Math.min(experience, xpForNextLevel))
+  const pct = level >= MAX_LEVEL ? 100 : ((clamped - xpForCurrentLevel) / span) * 100
+  return { level, experience, xpForCurrentLevel, xpForNextLevel, progressPct: Math.max(0, Math.min(100, pct)) }
+}
+
+function getPgConn(): string | null {
+  return process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || null
+}
+
+function needsSsl(conn: string): boolean {
+  return process.env.PGSSL === 'true' || /supabase\.(co|net)/i.test(conn) || /render\.com|railway|rlwy\.net/i.test(conn)
+}
+
+export async function addSkillXp(
+  assetId: string,
+  skill: CharacterSkill,
+  experienceGain: number,
+  opts?: { idempotencyKey?: string; playerPDA?: string; source?: string; sessionId?: string; gameMode?: string; additionalData?: any }
+): Promise<{
+  assetId: string
+  skill: CharacterSkill
+  experience: number
+  level: number
+  leveledUp: boolean
+  xpForCurrentLevel: number
+  xpForNextLevel: number
+  progressPct: number
+}> {
+  if (!assetId || experienceGain <= 0) {
+    throw new Error('Invalid assetId or experienceGain')
+  }
+
+  const pgConn = getPgConn()
+  if (opts?.idempotencyKey && pgConn) {
+    try {
+      const client: any = new PgClient({ connectionString: pgConn, ssl: needsSsl(pgConn) ? { rejectUnauthorized: false } : undefined } as any)
+      await client.connect()
+      try {
+        await client.query('begin')
+        const insEvent = `insert into xp_award_events (idempotency_key, asset_id, skill, experience_gain) values ($1,$2,$3,$4)`
+        await client.query(insEvent, [opts.idempotencyKey, assetId, skill, experienceGain])
+        await client.query('commit')
+      } catch (e: any) {
+        await client.query('rollback')
+        const msg = String(e?.message || e)
+        if (!/duplicate key value violates unique constraint/i.test(msg)) {
+          await client.end()
+          throw e
+        }
+        await client.end()
+        const current = await getSkillXp(assetId, skill)
+        const progress = computeProgress(current?.experience || 0)
+        const lvl = progress.level
+        return {
+          assetId,
+          skill,
+          experience: current?.experience || 0,
+          level: lvl,
+          leveledUp: false,
+          xpForCurrentLevel: progress.xpForCurrentLevel,
+          xpForNextLevel: progress.xpForNextLevel,
+          progressPct: progress.progressPct,
+        }
+      }
+      await client.end()
+    } catch (e) {
+      // proceed without idempotency enforcement if DB error
+    }
+  }
+
+  if (pgConn) {
+    const client: any = new PgClient({ connectionString: pgConn, ssl: needsSsl(pgConn) ? { rejectUnauthorized: false } : undefined } as any)
+    await client.connect()
+    try {
+      const upsertSql = `
+        insert into nft_skill_experience (asset_id, skill, experience)
+        values ($1,$2,$3)
+        on conflict (asset_id, skill) do update set
+          experience = nft_skill_experience.experience + excluded.experience,
+          updated_at = now()
+        returning experience, level
+      `
+      const upsertRes = await client.query(upsertSql, [assetId, skill, experienceGain])
+      const row = upsertRes.rows?.[0] as { experience: number; level: number }
+      const newXp = Number(row?.experience || 0)
+      const prevRowLevel = Number(row?.level || 1)
+      const newLevel = xpToLevel(newXp)
+      let leveledUp = false
+      if (newLevel > prevRowLevel) {
+        const updSql = `update nft_skill_experience set level = $1, pending_onchain_update = true, updated_at = now() where asset_id = $2 and skill = $3`
+        await client.query(updSql, [newLevel, assetId, skill])
+        leveledUp = true
+        const nftsRow = await NftColumns.get(assetId)
+        const playerPda = nftsRow?.player_pda || null
+        let stats: CharacterStats | null = null
+        if (nftsRow) {
+          stats = NftColumns.columnsToStats(nftsRow)
+          const s: any = { ...stats.skills }
+          const currentSkillLevel = Number((s as any)[skill]?.level || 1)
+          const targetLevel = Math.max(currentSkillLevel, newLevel)
+          s[skill] = { level: targetLevel, experience: levelToXp(targetLevel) }
+          stats = { ...stats, skills: s }
+          await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, stats)
+        }
+      }
+
+      const progress = computeProgress(newXp)
+      return {
+        assetId,
+        skill,
+        experience: newXp,
+        level: progress.level,
+        leveledUp,
+        xpForCurrentLevel: progress.xpForCurrentLevel,
+        xpForNextLevel: progress.xpForNextLevel,
+        progressPct: progress.progressPct,
+      }
+    } finally {
+      await client.end()
+    }
+  }
+
+  const { data: existing } = await supabase
+    .from('nft_skill_experience')
+    .select('*')
+    .eq('asset_id', assetId)
+    .eq('skill', skill)
+    .maybeSingle()
+  const currentXp = Number((existing as any)?.experience || 0)
+  const nextXp = currentXp + experienceGain
+  const currentLevel = Number((existing as any)?.level || 1)
+  const computedLevel = xpToLevel(nextXp)
+  const leveledUp = computedLevel > currentLevel
+  const { error: upErr } = existing
+    ? await supabase
+        .from('nft_skill_experience')
+        .update({ experience: nextXp, level: computedLevel, pending_onchain_update: leveledUp, updated_at: new Date().toISOString() })
+        .eq('asset_id', assetId)
+        .eq('skill', skill)
+    : await supabase
+        .from('nft_skill_experience')
+        .insert({ asset_id: assetId, skill, experience: nextXp, level: computedLevel, pending_onchain_update: leveledUp })
+  if (upErr) throw upErr
+  if (leveledUp) {
+    const nftsRow = await NftColumns.get(assetId)
+    const playerPda = nftsRow?.player_pda || null
+    if (nftsRow) {
+      const stats = NftColumns.columnsToStats(nftsRow)
+      const s: any = { ...stats.skills }
+      const currentSkillLevel = Number((s as any)[skill]?.level || 1)
+      const targetLevel = Math.max(currentSkillLevel, computedLevel)
+      s[skill] = { level: targetLevel, experience: levelToXp(targetLevel) }
+      await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, { ...stats, skills: s })
+    }
+  }
+  const progress = computeProgress(nextXp)
+  return {
+    assetId,
+    skill,
+    experience: nextXp,
+    level: progress.level,
+    leveledUp,
+    xpForCurrentLevel: progress.xpForCurrentLevel,
+    xpForNextLevel: progress.xpForNextLevel,
+    progressPct: progress.progressPct,
+  }
+}
+
+export async function getSkillXp(assetId: string, skill: CharacterSkill): Promise<{ experience: number; level: number } | null> {
+  const { data, error } = await supabase
+    .from('nft_skill_experience')
+    .select('experience, level')
+    .eq('asset_id', assetId)
+    .eq('skill', skill)
+    .maybeSingle()
+  if (error) return null
+  if (!data) return null
+  return { experience: Number((data as any).experience || 0), level: Number((data as any).level || 1) }
+}
+
+export async function getAllSkillXp(assetId: string): Promise<Record<CharacterSkill, { experience: number; level: number }>> {
+  const init: Record<CharacterSkill, { experience: number; level: number }> = {
+    attack: { experience: 0, level: 1 },
+    strength: { experience: 0, level: 1 },
+    defense: { experience: 0, level: 1 },
+    magic: { experience: 0, level: 1 },
+    projectiles: { experience: 0, level: 1 },
+    vitality: { experience: 0, level: 1 },
+    crafting: { experience: 0, level: 1 },
+    luck: { experience: 0, level: 1 },
+    gathering: { experience: 0, level: 1 },
+  }
+  const { data, error } = await supabase
+    .from('nft_skill_experience')
+    .select('skill, experience, level')
+    .eq('asset_id', assetId)
+  if (!error && Array.isArray(data)) {
+    for (const row of data as any[]) {
+      const sk = row.skill as CharacterSkill
+      init[sk] = { experience: Number(row.experience || 0), level: Number(row.level || 1) }
+    }
+  }
+  return init
+}
+
+export async function markAssetSynced(assetId: string): Promise<void> {
+  await supabase
+    .from('nft_skill_experience')
+    .update({ pending_onchain_update: false, updated_at: new Date().toISOString() })
+    .eq('asset_id', assetId)
+}
+
+

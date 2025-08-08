@@ -1,6 +1,9 @@
 import { Router } from 'express';
+import { publicKey, some } from '@metaplex-foundation/umi';
+import { burn, getAssetWithProof } from '@metaplex-foundation/mpl-bubblegum';
+import { umi } from '../config/solana';
 import { z } from 'zod';
-import { MetadataStore } from '../services/database';
+// Local metadata cache removed
 
 const router = Router();
 
@@ -10,74 +13,17 @@ const metadataIdSchema = z.object({
 });
 
 // GET /api/cnft/player-metadata/:id - Serve character metadata (matching frontend)
-router.get('/player-metadata/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    if (!id) {
-      return res.status(400).json({
-        error: 'Metadata ID required'
-      });
-    }
-    
-    console.log(`📋 Serving character metadata for ID: ${id}`);
-    
-    // Get stored character metadata
-    const metadata = MetadataStore.get(id);
-    
-    if (!metadata) {
-      return res.status(404).json({
-        error: 'Character metadata not found',
-        id
-      });
-    }
-    
-    // Return the metadata in standard NFT format
-    res.json(metadata);
-    
-  } catch (error) {
-    console.error('❌ Error serving character metadata:', error);
-    res.status(500).json({
-      error: 'Failed to serve character metadata'
-    });
-  }
+router.get('/player-metadata/:id', async (req: any, res: any) => {
+  return res.status(410).json({ error: 'Local metadata caching disabled' })
 });
 
 // POST /api/cnft/player-metadata/:id - Store character metadata (matching frontend)
-router.post('/player-metadata/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const metadata = req.body;
-    
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Metadata ID required'
-      });
-    }
-    
-    console.log(`💾 Storing character metadata for ID: ${id}`);
-    
-    // Store the character metadata
-    MetadataStore.set(id, metadata);
-    
-    res.json({
-      success: true,
-      message: 'Character metadata stored successfully',
-      id
-    });
-    
-  } catch (error) {
-    console.error('❌ Error storing character metadata:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to store character metadata'
-    });
-  }
+router.post('/player-metadata/:id', async (req: any, res: any) => {
+  return res.status(410).json({ success: false, error: 'Local metadata caching disabled' })
 });
 
 // POST /api/cnft/fetch-player-cnfts-simple - Fetch player cNFTs (matching frontend endpoint)
-router.post('/fetch-player-cnfts-simple', async (req, res) => {
+router.post('/fetch-player-cnfts-simple', async (req: any, res: any) => {
   try {
     const { playerId } = req.body;
     
@@ -97,11 +43,22 @@ router.post('/fetch-player-cnfts-simple', async (req, res) => {
     const { supabase } = await import('../config/database');
     
     // Get the user profile from Supabase to find character asset IDs
-    const { data: profile, error: profileError } = await supabase
+    // Try by id first, then by player_pda as fallback
+    let { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, player_pda')
-      .eq('id', playerId)  // Note: This route uses user.id, not player_pda
+      .eq('id', playerId)
       .single();
+
+    if (profileError || !profile) {
+      const alt = await supabase
+        .from('profiles')
+        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, player_pda')
+        .eq('player_pda', playerId)
+        .single();
+      profile = alt.data as any;
+      profileError = alt.error as any;
+    }
 
     console.log('📊 [CNFT Route] Supabase query result:');
     console.log('- Profile data:', profile);
@@ -175,7 +132,7 @@ router.post('/fetch-player-cnfts-simple', async (req, res) => {
 });
 
 // POST /api/cnft/update-cnft-metadata - Update cNFT metadata (matching frontend endpoint)
-router.post('/update-cnft-metadata', async (req, res) => {
+router.post('/update-cnft-metadata', async (req: any, res: any) => {
   try {
     const { assetId, characterStats, playerPDA } = req.body;
     
@@ -214,5 +171,30 @@ router.post('/update-cnft-metadata', async (req, res) => {
     });
   }
 });
+
+// POST /api/cnft/burn { assetIds: string[] }
+router.post('/burn', async (req: any, res: any) => {
+  try {
+    const { assetIds } = req.body || {}
+    if (!Array.isArray(assetIds) || assetIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'assetIds[] required' })
+    }
+    const results: any[] = []
+    for (const id of assetIds) {
+      try {
+        const assetWithProof = await getAssetWithProof(umi as any, publicKey(id), { truncateCanopy: true })
+        const burnTx = burn(umi as any, { ...assetWithProof })
+        const sigRes = await burnTx.sendAndConfirm(umi as any, { send: { skipPreflight: false } })
+        results.push({ assetId: id, success: true, signature: String((sigRes as any)?.signature) })
+      } catch (e: any) {
+        results.push({ assetId: id, success: false, error: e?.message || String(e) })
+      }
+    }
+    return res.json({ success: true, results })
+  } catch (err) {
+    console.error('❌ Burn error:', err)
+    return res.status(500).json({ success: false, error: 'Internal server error' })
+  }
+})
 
 export default router;

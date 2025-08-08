@@ -3,6 +3,7 @@ import {
   mintToCollectionV1,
   updateMetadata
 } from '@metaplex-foundation/mpl-bubblegum';
+import { burn } from '@metaplex-foundation/mpl-bubblegum';
 import { 
   publicKey, 
   some, 
@@ -11,6 +12,7 @@ import {
 } from '@metaplex-foundation/umi';
 import { umi, serverSigner, COLLECTION_MINT, MERKLE_TREE } from '../config/solana';
 import { CharacterStats, Character } from '../types/character';
+import { uploadJsonToArweave } from './storage';
 
 // Exactly matching your frontend's character generation
 export function generateDefaultCharacterStats(name: string, characterClass: string = 'Adventurer'): CharacterStats {
@@ -60,28 +62,119 @@ export function generateDefaultCharacterStats(name: string, characterClass: stri
   };
 }
 
+async function resolveAssetIdViaHelius(signature: string): Promise<string | null> {
+  try {
+    const heliusUrl = process.env.HELIUS_API_URL
+    if (!heliusUrl) return null
+    const txRes = await fetch(heliusUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions: [signature] })
+    })
+    const json: any = await txRes.json().catch(() => null)
+    const entry = Array.isArray(json) ? json[0] : null
+    const compressed = entry?.events?.compressed
+    const assetId = compressed?.assetId || compressed?.assetIds?.[0] || null
+    return assetId || null
+  } catch (e) {
+    console.warn('⚠️ Helius resolve failed:', e)
+    return null
+  }
+}
+
+export async function findLatestAssetIdForOwner(ownerAddress: string): Promise<string | null> {
+  try {
+    const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || '';
+    const collection = process.env.CNFT_COLLECTION_ADDRESS || '';
+    if (!rpcUrl || !collection) {
+      console.warn('⚠️ Missing SOLANA_RPC_URL or CNFT_COLLECTION_ADDRESS for DAS lookup');
+      return null;
+    }
+    const body = {
+      jsonrpc: '2.0',
+      id: 'findAsset',
+      method: 'searchAssets',
+      params: {
+        ownerAddress: ownerAddress,
+        grouping: ['collection', collection],
+        page: 1,
+        limit: 1,
+        sortBy: { sortBy: 'recentAction', sortOrder: 'desc' }
+      }
+    } as any;
+    const res = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      console.warn('⚠️ DAS searchAssets failed:', res.status, await res.text());
+      return null;
+    }
+    const json: any = await res.json();
+    const items = json?.result?.items || [];
+    const assetId = items[0]?.id as string | undefined;
+    return assetId || null;
+  } catch (err) {
+    console.warn('⚠️ DAS lookup error:', err);
+    return null;
+  }
+}
+
+async function pollForAssetIdViaDAS(
+  ownerAddress: string,
+  timeoutMs: number = Number(process.env.DAS_RESOLVE_TIMEOUT_MS || 60000),
+  intervalMs: number = Number(process.env.DAS_RESOLVE_INTERVAL_MS || 3000)
+): Promise<string | null> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const id = await findLatestAssetIdForOwner(ownerAddress);
+    if (id) return id;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  return null;
+}
+
 // Create character cNFT (exactly matching your frontend logic)
 export async function createCharacterCNFT(
   playerPDA: string,
   characterName: string,
   characterClass: string = 'Adventurer'
-): Promise<{ success: boolean; assetId?: string; error?: string }> {
+): Promise<{ success: boolean; assetId?: string; signature?: string; error?: string }> {
   try {
     console.log('🎯 Creating character cNFT for:', playerPDA);
     
     // Generate character stats
     const characterStats = generateDefaultCharacterStats(characterName, characterClass);
     
-    // Generate asset signer (new cNFT address)
-    const assetSigner = generateSigner(umi);
-    console.log('🆔 Generated asset ID:', assetSigner.publicKey);
-    
-    // Create metadata URI (pointing to our backend endpoint)
-    const metadataId = Date.now().toString();
-    const metadataUri = `${process.env.BACKEND_URL || 'http://localhost:3000'}/api/cnft/player-metadata/${metadataId}`;
-    
-    // Store metadata off-chain first
-    await storeCharacterMetadata(metadataId, characterStats);
+    // Build Metaplex JSON and upload to Arweave
+    const imageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(characterName)}&backgroundColor=b6e3f4`
+    const jsonPayload = {
+      name: `${characterName} (Level ${characterStats.level}, Combat ${characterStats.combatLevel})`,
+      symbol: 'PLAYER',
+      description: `Level ${characterStats.level} ${characterStats.characterClass} with ${characterStats.totalLevel} total skill levels`,
+      image: imageUrl,
+      external_url: 'https://obeliskparadox.com',
+      attributes: [
+        { trait_type: 'Version', value: characterStats.version || '2.0.0' },
+        { trait_type: 'Level', value: characterStats.level.toString() },
+        { trait_type: 'Combat Level', value: characterStats.combatLevel.toString() },
+        { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
+        { trait_type: 'Att', value: characterStats.skills.attack.level.toString() },
+        { trait_type: 'Str', value: characterStats.skills.strength.level.toString() },
+        { trait_type: 'Def', value: characterStats.skills.defense.level.toString() },
+        { trait_type: 'Mag', value: characterStats.skills.magic.level.toString() },
+        { trait_type: 'Pro', value: characterStats.skills.projectiles.level.toString() },
+        { trait_type: 'Vit', value: characterStats.skills.vitality.level.toString() },
+        { trait_type: 'Cra', value: characterStats.skills.crafting.level.toString() },
+        { trait_type: 'Luc', value: characterStats.skills.luck.level.toString() },
+        { trait_type: 'Gat', value: characterStats.skills.gathering.level.toString() }
+      ],
+      properties: {
+        files: [ { uri: imageUrl, type: 'image/svg+xml' } ]
+      }
+    }
+    const { uri: metadataUri } = await uploadJsonToArweave(jsonPayload)
     
     // Build Metaplex standard metadata (exactly like frontend)
     const displayName = `${characterName} (Level ${characterStats.level}, Combat ${characterStats.combatLevel})`;
@@ -105,17 +198,47 @@ export async function createCharacterCNFT(
     console.log('🌱 Minting character cNFT...');
     const mintTx = await mintToCollectionV1(umi, {
       leafOwner: publicKey(playerPDA),
+      leafDelegate: serverSigner.publicKey,
       merkleTree: publicKey(MERKLE_TREE),
       collectionMint: publicKey(COLLECTION_MINT),
       metadata
     }).sendAndConfirm(umi);
 
     console.log('✅ Character cNFT minted successfully');
-    console.log('🔗 Transaction:', mintTx.signature);
+    // Ensure we have a base58 signature string (Umi may return Uint8Array)
+    const rawSig: any = (mintTx as any)?.signature
+    let mintSignature = ''
+    try {
+      if (typeof rawSig === 'string') mintSignature = rawSig
+      else if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
+        const bs58 = require('bs58')
+        mintSignature = bs58.encode(Uint8Array.from(rawSig))
+      }
+    } catch {}
+    console.log('🔗 Transaction:', mintSignature || rawSig);
+    
+    // Try fast path: resolve via Helius enhanced transactions
+    let resolvedAssetId: string | null = null;
+    const heliusFast = await resolveAssetIdViaHelius(mintSignature)
+    if (heliusFast) {
+      console.log('🆔 Resolved asset ID via Helius:', heliusFast)
+      resolvedAssetId = heliusFast
+    } else {
+      // Fallback: short DAS poll (do not block for long)
+      try {
+        console.log('⏳ Helius failed or not configured. Short DAS poll...')
+        resolvedAssetId = await pollForAssetIdViaDAS(playerPDA, Number(process.env.DAS_RESOLVE_TIMEOUT_MS || 15000), Number(process.env.DAS_RESOLVE_INTERVAL_MS || 3000))
+        if (resolvedAssetId) console.log('🆔 Resolved asset ID via DAS:', resolvedAssetId)
+        else console.warn('⚠️ Could not resolve asset ID via DAS within timeout')
+      } catch (e) {
+        console.warn('⚠️ Asset ID resolution failed:', e)
+      }
+    }
     
     return {
       success: true,
-      assetId: assetSigner.publicKey.toString()
+      assetId: resolvedAssetId || undefined,
+      signature: mintSignature
     };
     
   } catch (error) {
@@ -134,6 +257,10 @@ export async function updateCharacterCNFT(
   playerPDA?: string
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
+    // Guard against mock/placeholder asset IDs
+    if (!assetId || assetId.startsWith('cnft-') || assetId.length < 32) {
+      return { success: false, error: 'Invalid or mock asset ID; cannot update metadata' };
+    }
     console.log('🔄 Starting cNFT metadata update for:', assetId);
     
     // Fetch asset with proof (with retry logic like frontend)
@@ -159,18 +286,63 @@ export async function updateCharacterCNFT(
       throw new Error('Failed to fetch asset proof');
     }
     
-    // Extract metadata ID from existing URI (exactly like frontend)
-    const existingUri = assetWithProof.metadata.uri;
-    let metadataId = characterStats.name || Date.now().toString();
-    
-    if (existingUri && existingUri.includes('player-metadata/')) {
-      const uriParts = existingUri.split('player-metadata/');
-      if (uriParts.length > 1) {
-        metadataId = uriParts[1];
+    // Merge incoming characterStats with current on-chain to prevent accidental regressions
+    // when multiple quick updates happen in sequence.
+    try {
+      const currentParsed = await parseCharacterFromMetadata(assetWithProof);
+      const skillKeys = ['attack','strength','defense','magic','projectiles','vitality','crafting','luck','gathering'] as const;
+      const mergedSkills: any = { ...characterStats.skills };
+      for (const k of skillKeys) {
+        const incoming = (characterStats.skills as any)[k]?.level ?? 1;
+        const onchain = (currentParsed.skills as any)[k]?.level ?? 1;
+        mergedSkills[k] = { level: Math.max(incoming, onchain), experience: ((Math.max(incoming, onchain)) * 100) };
       }
+      // Recompute derived fields from merged skills
+      const att = mergedSkills.attack.level, str = mergedSkills.strength.level, def = mergedSkills.defense.level;
+      const mag = mergedSkills.magic.level, pro = mergedSkills.projectiles.level, vit = mergedSkills.vitality.level;
+      const totalLevel = att + str + def + mag + pro + vit + mergedSkills.crafting.level + mergedSkills.luck.level + mergedSkills.gathering.level;
+      const melee = (att + str + def) / 3;
+      const magicStyle = (mag * 1.5 + def) / 2.5;
+      const projectileStyle = (pro + def) / 2;
+      const combatLevel = Math.floor(Math.max(melee, magicStyle, projectileStyle) + vit * 0.25);
+      characterStats = {
+        ...characterStats,
+        skills: mergedSkills,
+        totalLevel,
+        combatLevel,
+      } as any;
+    } catch (_) {
+      // If merge fails, continue with provided stats
     }
     
-    console.log(`📋 Using metadata ID: ${metadataId}`);
+    // Build new JSON and upload to Arweave (production standard)
+    const imageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(characterStats.name)}&backgroundColor=b6e3f4`
+    const jsonPayload = {
+      name: `${characterStats.name} (Level ${characterStats.level}${characterStats.combatLevel != null ? `, Combat ${characterStats.combatLevel}` : ''})`,
+      symbol: 'PLAYER',
+      description: `Level ${characterStats.level} ${characterStats.characterClass} with ${characterStats.totalLevel} total skill levels`,
+      image: imageUrl,
+      external_url: 'https://obeliskparadox.com',
+      attributes: [
+        { trait_type: 'Version', value: characterStats.version || '2.0.0' },
+        { trait_type: 'Level', value: characterStats.level.toString() },
+        ...(characterStats.combatLevel != null ? [{ trait_type: 'Combat Level', value: characterStats.combatLevel.toString() }] : []),
+        { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
+        { trait_type: 'Att', value: (characterStats.skills.attack?.level ?? 1).toString() },
+        { trait_type: 'Str', value: (characterStats.skills.strength?.level ?? 1).toString() },
+        { trait_type: 'Def', value: (characterStats.skills.defense?.level ?? 1).toString() },
+        { trait_type: 'Mag', value: (characterStats.skills.magic?.level ?? 1).toString() },
+        { trait_type: 'Pro', value: (characterStats.skills.projectiles?.level ?? 1).toString() },
+        { trait_type: 'Vit', value: (characterStats.skills.vitality?.level ?? 1).toString() },
+        { trait_type: 'Cra', value: (characterStats.skills.crafting?.level ?? 1).toString() },
+        { trait_type: 'Luc', value: (characterStats.skills.luck?.level ?? 1).toString() },
+        { trait_type: 'Gat', value: (characterStats.skills.gathering?.level ?? 1).toString() }
+      ],
+      properties: { files: [ { uri: imageUrl, type: 'image/svg+xml' } ] },
+      // Include full stats to guarantee skill visibility even if a reader ignores attributes
+      characterStats
+    }
+    const { uri: newUri } = await uploadJsonToArweave(jsonPayload)
     
     // Generate display name with combat level (exactly like frontend)
     const combatLevel = characterStats.combatLevel;
@@ -181,41 +353,91 @@ export async function updateCharacterCNFT(
       
     console.log(`🔧 Name generation: shouldIncludeCombat=${shouldIncludeCombat}, displayName="${displayName}"`);
     
-    // Store detailed character data off-chain (exactly like frontend)
-    await storeCharacterMetadata(metadataId, characterStats);
-    
-    // Minimal on-chain update (only name to keep transaction size small) - exactly like frontend
+    // Store detailed character data off-chain (dev fallback only)
+    // await storeCharacterMetadata(metadataId, characterStats);
+
+    // On-chain update: ONLY update name to keep leaf payload minimal (align with old API)
     const updateArgs = {
-      name: some(displayName)
-      // Only update name to keep transaction as small as possible
-      // All detailed character data is stored at the metadata URI
-    };
+      name: some(displayName),
+      uri: some(newUri)
+    } as const;
     
     // Determine leaf owner (exactly like frontend)
     const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
     console.log(`🎯 Using leaf owner: ${leafOwner}`);
     
-    // Build update transaction (exactly like frontend)
-    const updateTx = updateMetadata(umi, {
+    // Build update transaction
+    let updateTx = updateMetadata(umi, {
       ...assetWithProof,
       leafOwner: leafOwner,
       currentMetadata: assetWithProof.metadata,
       updateArgs,
       collectionMint: publicKey(COLLECTION_MINT)
     });
-    
-    // Send transaction (exactly like frontend)
+
+    // Send with retry; handle stale proof by refetching and rebuilding
     console.log('🚀 Sending metadata update transaction...');
-    const result = await updateTx.sendAndConfirm(umi, {
-      send: { skipPreflight: false }
-    });
-    
-    console.log('✅ Metadata update completed! Signature:', result.signature);
-    
-    return {
-      success: true,
-      signature: result.signature.toString()
+    const sendWithRetry = async (retries = 2) => {
+      for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+          const res = await updateTx.sendAndConfirm(umi, { send: { skipPreflight: false } });
+          return res;
+        } catch (err: any) {
+          const msg = typeof err?.message === 'string' ? err.message : String(err);
+          console.warn(`❌ Update attempt ${attempt + 1} failed: ${msg}`);
+          if (msg.includes('Invalid root recomputed') && attempt < retries - 1) {
+            console.log('🔄 Detected stale proof; refetching assetWithProof and rebuilding tx...');
+            const fresh = await getAssetWithProof(umi, publicKey(assetId), { truncateCanopy: true });
+            updateTx = updateMetadata(umi, {
+              ...fresh,
+              leafOwner,
+              currentMetadata: fresh.metadata,
+              updateArgs,
+              collectionMint: publicKey(COLLECTION_MINT)
+            });
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          if (attempt === retries - 1) throw err;
+        }
+      }
     };
+    const result = await sendWithRetry();
+    const sig = (result as any)?.signature;
+    console.log('✅ Metadata update completed! Signature:', sig);
+    
+    // Post-update confirmation: wait until the on-chain URI reflects the new Arweave URL.
+    // This avoids UI reading stale content due to indexer lag or proof staleness.
+    try {
+      const expectedUri = newUri;
+      const confirmStart = Date.now();
+      const confirmTimeoutMs = Number(process.env.UPDATE_CONFIRM_TIMEOUT_MS || 20000);
+      const confirmIntervalMs = Number(process.env.UPDATE_CONFIRM_INTERVAL_MS || 2000);
+      let confirmed = false;
+      while (Date.now() - confirmStart < confirmTimeoutMs) {
+        try {
+          const fresh = await getAssetWithProof(umi, publicKey(assetId), { truncateCanopy: true });
+          const onChainUri = fresh?.metadata?.uri as string | undefined;
+          if (onChainUri && onChainUri === expectedUri) {
+            confirmed = true;
+            break;
+          }
+        } catch (_) {
+          // ignore and retry
+        }
+        await new Promise(r => setTimeout(r, confirmIntervalMs));
+      }
+      if (!confirmed) {
+        console.warn('⚠️ Post-update confirmation timed out; UI may briefly show stale data.');
+      } else {
+        console.log('✅ Post-update confirmation: on-chain URI matches new Arweave URL');
+      }
+      // Best-effort: warm Arweave/CDN cache of the new JSON
+      try { await fetch(`${newUri}${newUri.includes('?') ? '&' : '?'}t=${Date.now()}`, { method: 'GET' }); } catch {}
+    } catch (_) {
+      // non-fatal
+    }
+    return { success: true, signature: sig ? String(sig) : undefined };
     
   } catch (error) {
     console.error('❌ cNFT metadata update error:', error);
@@ -230,25 +452,79 @@ export async function updateCharacterCNFT(
 export async function fetchCharacterFromCNFT(assetId: string): Promise<Character | null> {
   try {
     console.log('🔍 Fetching character data for:', assetId);
-    
-    const assetWithProof = await getAssetWithProof(umi, publicKey(assetId), {
-      truncateCanopy: true
-    });
-    
-    console.log('✅ Successfully fetched real cNFT metadata');
-    
-    // Parse character data from cNFT (exactly like frontend)
-    const characterStats = await parseCharacterFromMetadata(assetWithProof);
-    
-    return {
-      id: assetId,
-      characterStats,
-      lastSynced: new Date()
-    };
-    
+
+    let parsedStats: CharacterStats | null = null;
+
+    // First try full proof (needed for updates, nice-to-have for reads)
+    try {
+      const assetWithProof = await getAssetWithProof(umi, publicKey(assetId), {
+        truncateCanopy: true
+      });
+      console.log('✅ Successfully fetched cNFT with proof');
+      parsedStats = await parseCharacterFromMetadata(assetWithProof);
+    } catch (proofErr) {
+      console.warn('⚠️ Proof fetch failed; falling back to DAS getAsset for read-only metadata:', proofErr);
+      // Fallback to read-only DAS getAsset so UI can still render
+      try {
+        const rpcUrl = process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || '';
+        if (!rpcUrl) throw new Error('SOLANA_RPC_URL not configured');
+        const body = {
+          jsonrpc: '2.0',
+          id: 'getAsset',
+          method: 'getAsset',
+          params: { id: assetId }
+        } as any;
+        const res = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error(`DAS getAsset failed: ${res.status}`);
+        const json: any = await res.json();
+        const asset = json?.result;
+        if (!asset) throw new Error('DAS getAsset returned no result');
+
+        // Map DAS shape to the minimal structure parseCharacterFromMetadata expects
+        const name = asset?.content?.metadata?.name || '';
+        const uri = asset?.content?.json_uri || asset?.content?.links?.external_url || '';
+        const attributes = asset?.content?.metadata?.attributes || [];
+        const shim = { metadata: { name, uri, attributes } };
+        parsedStats = await parseCharacterFromMetadata(shim);
+        console.log('✅ Fetched metadata via DAS getAsset');
+      } catch (dasErr) {
+        console.error('❌ DAS getAsset fallback failed:', dasErr);
+        return null;
+      }
+    }
+
+    return parsedStats
+      ? { id: assetId, characterStats: parsedStats, lastSynced: new Date() }
+      : null;
   } catch (error) {
-    console.error('❌ Error fetching character from cNFT:', error);
+    console.error('❌ Error fetching character from cNFT (outer):', error);
     return null;
+  }
+}
+
+// Debug helper: returns current on-chain uri and parsed attributes from the JSON
+export async function getAssetMetadataDebug(assetId: string): Promise<{ uri?: string; name?: string; attributes?: any[] }> {
+  try {
+    const assetWithProof = await getAssetWithProof(umi, publicKey(assetId), { truncateCanopy: true });
+    const uri = assetWithProof?.metadata?.uri as string | undefined;
+    const name = assetWithProof?.metadata?.name as string | undefined;
+    let attributes: any[] | undefined = undefined;
+    if (uri) {
+      try {
+        const res = await fetch(uri)
+        if (res.ok) {
+          const json: any = await res.json().catch(() => null)
+          if (json && Array.isArray((json as any).attributes)) attributes = (json as any).attributes as any[]
+        }
+      } catch {}
+    }
+    return { uri, name, attributes };
+  } catch {
+    return {};
   }
 }
 
@@ -316,17 +592,50 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
     try {
       console.log('🔍 No skills in attributes, trying metadata URI:', metadata.uri);
       
-      // Convert external URI to local API endpoint (exactly like frontend)
-      let metadataUrl = metadata.uri;
-      if (metadataUrl.includes('api.obeliskparadox.com/player-metadata/')) {
-        const metadataId = metadataUrl.split('player-metadata/')[1];
-        metadataUrl = `https://obelisk-skiller-production.up.railway.app/api/cnft/player-metadata/${metadataId}`;
-        console.log(`🔄 Converted to local API: ${metadataUrl}`);
+      // Normalize any metadata URI to this backend (Railway) when possible.
+      // If BACKEND_URL is not set, fall back to this server's localhost + PORT so
+      // the fetch happens inside the container and never hits external hosts.
+      const originalUri = metadata.uri as string;
+      let metadataUrl = originalUri;
+      const configuredBase = (process.env.BACKEND_URL || '').replace(/\/$/, '');
+      const localBase = `http://localhost:${process.env.PORT || 8080}`;
+      const backendBase = configuredBase || localBase;
+      // Extract metadata id from either legacy 'player-metadata' or newer 'api/metadata' patterns
+      const idMatch = (() => {
+        const re = /(player-metadata|api\/metadata)\/([^/?#]+)/;
+        const m = metadataUrl.match(re);
+        return m ? m[2] : '';
+      })();
+      if (idMatch) {
+        const metadataId = idMatch.split(/[?#]/)[0];
+        const explicitBase = (process.env.METADATA_URI_BASE || '').replace(/\/$/, '');
+        const destBase = explicitBase || `${backendBase}/api/player-metadata`;
+        metadataUrl = `${destBase}/${metadataId}`;
+        console.log(`🔄 Rewritten metadata URI -> ${metadataUrl}`);
       }
       
-      const metadataResponse = await fetch(metadataUrl);
-      if (metadataResponse.ok) {
-        const metadataJson = await metadataResponse.json() as any;
+      let fetchedJson: any | null = null;
+      let response = await fetch(metadataUrl);
+      if (!response.ok && originalUri !== metadataUrl) {
+        console.log(`⚠️ Rewritten fetch returned ${response.status}. Trying original URI as fallback...`);
+        try {
+          response = await fetch(originalUri);
+        } catch (fallbackErr) {
+          console.log('⚠️ Fallback fetch to original URI failed:', fallbackErr);
+        }
+      }
+
+      if (response && response.ok) {
+        const metadataJson = await response.json().catch(() => null);
+        fetchedJson = metadataJson;
+
+      // Caching disabled per request
+      }
+
+      // Placeholder caching disabled
+
+      if (fetchedJson) {
+        const metadataJson = fetchedJson as any;
         
         // Check for characterStats format first (exactly like frontend)
         if (metadataJson.characterStats && metadataJson.characterStats.skills) {
