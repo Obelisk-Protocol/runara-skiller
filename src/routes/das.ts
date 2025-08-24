@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { getDasUrl, getRpcUrl } from '../config/solana'
 import { supabase } from '../config/database'
 
 const router = Router()
@@ -11,9 +12,9 @@ router.post('/get-assets-by-owner', async (req: any, res: any) => {
       return res.status(400).json({ success: false, error: 'Missing ownerAddress' })
     }
 
-    const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const rpcUrl = getDasUrl() || getRpcUrl()
     if (!rpcUrl) {
-      return res.status(500).json({ success: false, error: 'SOLANA_RPC_URL not configured' })
+      return res.status(500).json({ success: false, error: 'DAS/RPC URL not configured' })
     }
 
     const body = {
@@ -57,9 +58,9 @@ router.post('/get-eligible-owner-assets', async (req: any, res: any) => {
       return res.status(400).json({ success: false, error: 'Missing ownerAddress' })
     }
 
-    const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const rpcUrl = getDasUrl() || getRpcUrl()
     if (!rpcUrl) {
-      return res.status(500).json({ success: false, error: 'SOLANA_RPC_URL not configured' })
+      return res.status(500).json({ success: false, error: 'DAS/RPC URL not configured' })
     }
 
     const body = {
@@ -96,9 +97,9 @@ router.post('/extract-asset-id', async (req: any, res: any) => {
       return res.status(400).json({ success: false, error: 'Missing signature' })
     }
 
-    const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const rpcUrl = getDasUrl() || getRpcUrl()
     if (!rpcUrl) {
-      return res.status(500).json({ success: false, error: 'SOLANA_RPC_URL not configured' })
+      return res.status(500).json({ success: false, error: 'DAS/RPC URL not configured' })
     }
 
     const txBody = {

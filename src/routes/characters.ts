@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { getDasUrl, getRpcUrl } from '../config/solana';
 import crypto from 'crypto'
 import { z } from 'zod';
 import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT, findLatestAssetIdForOwner, getAssetMetadataDebug, generateDefaultCharacterStats } from '../services/cnft';
@@ -396,7 +397,7 @@ router.post('/inventory-union', async (req: any, res: any) => {
     ] : []).filter(Boolean) as string[]
 
     // Merge with DAS owner queries: PDA and server escrow
-    const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const rpcUrl = getDasUrl() || getRpcUrl()
     const collection = process.env.CNFT_COLLECTION_ADDRESS || ''
     const fetchAssetsByOwner = async (owner: string) => {
       if (!rpcUrl) return [] as any[]
@@ -664,7 +665,7 @@ router.post('/fetch-player-cnfts-simple', async (req: any, res: any) => {
     if (assetIds.length === 0) {
       console.log('📋 No character asset IDs found in profile; falling back to DAS search (owner)');
       try {
-        const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || '';
+        const rpcUrl = getDasUrl() || getRpcUrl();
         if (rpcUrl) {
           const body: any = {
             jsonrpc: '2.0', id: 'getAssetsByOwner', method: 'getAssetsByOwner', params: { ownerAddress: playerId, page: 1, limit: 50 }

@@ -15,19 +15,35 @@ import {
   signerIdentity
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { umi, serverSigner, COLLECTION_MINT, MERKLE_TREE } from '../config/solana';
+import { umi, serverSigner, COLLECTION_MINT, MERKLE_TREE, getDasUrl, getRpcUrl } from '../config/solana';
 import { CharacterStats, Character } from '../types/character';
 import { uploadJsonToArweave } from './storage';
 
 // Resolve default character image URL
 function resolveDefaultCharacterImageUrl(seedName?: string): string {
+  try {
+    console.log('[IMG] Env snapshot', {
+      has_CHARACTER_DEFAULT_IMAGE_URL: Boolean(process.env.CHARACTER_DEFAULT_IMAGE_URL),
+      FRONTEND_BASE_URL: process.env.FRONTEND_BASE_URL || undefined,
+      NEXT_PUBLIC_FRONTEND_URL: process.env.NEXT_PUBLIC_FRONTEND_URL || undefined,
+    })
+  } catch {}
   const explicit = process.env.CHARACTER_DEFAULT_IMAGE_URL || process.env.NEXT_PUBLIC_CHARACTER_DEFAULT_IMAGE_URL
-  if (explicit && explicit.startsWith('http')) return explicit
+  if (explicit && explicit.startsWith('http')) {
+    console.log('[IMG] Using CHARACTER_DEFAULT_IMAGE_URL', explicit)
+    return explicit
+  }
   const front = (process.env.FRONTEND_BASE_URL || process.env.NEXT_PUBLIC_FRONTEND_URL || '').replace(/\/$/, '')
-  if (front) return `${front}/images/characternft/charsillo.png`
+  if (front) {
+    const url = `${front}/images/characternft/charsillo.png`
+    console.log('[IMG] Using FRONTEND_BASE_URL derived url', { front, url })
+    return url
+  }
   // Fallback to deterministic avatar
   const name = seedName || 'Adventurer'
-  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4`
+  const fallback = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4`
+  console.log('[IMG] Using Dicebear fallback', fallback)
+  return fallback
 }
 
 // Exactly matching your frontend's character generation
@@ -100,7 +116,7 @@ async function resolveAssetIdViaHelius(signature: string): Promise<string | null
 
 export async function findLatestAssetIdForOwner(ownerAddress: string): Promise<string | null> {
   try {
-    const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || '';
+    const rpcUrl = getDasUrl() || getRpcUrl();
     const collection = process.env.CNFT_COLLECTION_ADDRESS || '';
     if (!rpcUrl || !collection) {
       console.warn('⚠️ Missing SOLANA_RPC_URL or CNFT_COLLECTION_ADDRESS for DAS lookup');
@@ -165,6 +181,7 @@ export async function createCharacterCNFT(
     
     // Build Metaplex JSON and upload to Arweave
     const imageUrl = resolveDefaultCharacterImageUrl(characterName)
+    console.log('[IMG] createCharacterCNFT imageUrl', imageUrl)
     const jsonPayload = {
       name: `${characterName} (Level ${characterStats.level}, Combat ${characterStats.combatLevel})`,
       symbol: 'PLAYER',
@@ -191,6 +208,7 @@ export async function createCharacterCNFT(
       }
     }
     const { uri: metadataUri } = await uploadJsonToArweave(jsonPayload)
+    console.log('[IMG] createCharacterCNFT metadataUri', metadataUri)
     
     // Build Metaplex standard metadata (exactly like frontend)
     const displayName = `${characterName} (Level ${characterStats.level}, Combat ${characterStats.combatLevel})`;
@@ -333,6 +351,7 @@ export async function updateCharacterCNFT(
     
     // Build new JSON and upload to Arweave (production standard)
     const imageUrl = resolveDefaultCharacterImageUrl(characterStats.name)
+    console.log('[IMG] updateCharacterCNFT imageUrl', imageUrl)
     const jsonPayload = {
       name: `${characterStats.name} (Level ${characterStats.level}${characterStats.combatLevel != null ? `, Combat ${characterStats.combatLevel}` : ''})`,
       symbol: 'PLAYER',
@@ -359,6 +378,7 @@ export async function updateCharacterCNFT(
       characterStats
     }
     const { uri: newUri } = await uploadJsonToArweave(jsonPayload)
+    console.log('[IMG] updateCharacterCNFT metadataUri', newUri)
     
     // Generate display name with combat level (exactly like frontend)
     const combatLevel = characterStats.combatLevel;
@@ -482,8 +502,8 @@ export async function fetchCharacterFromCNFT(assetId: string): Promise<Character
       console.warn('⚠️ Proof fetch failed; falling back to DAS getAsset for read-only metadata:', proofErr);
       // Fallback to read-only DAS getAsset so UI can still render
       try {
-        const rpcUrl = process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || '';
-        if (!rpcUrl) throw new Error('SOLANA_RPC_URL not configured');
+        const rpcUrl = getDasUrl() || getRpcUrl();
+        if (!rpcUrl) throw new Error('DAS/RPC URL not configured');
         const body = {
           jsonrpc: '2.0',
           id: 'getAsset',
@@ -539,7 +559,7 @@ export async function transferCNFTToWallet(
       wallet: shorten(walletAddress)
     })
     // Use a proof RPC that matches the one used by the client (prefer DAS/Helius)
-    const proofRpc = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const proofRpc = getDasUrl() || getRpcUrl()
     const proofUmi = proofRpc ? createUmi(proofRpc).use(mplBubblegum()) : umi
     // Reuse server signer identity for sending if we fall back to umi
     if (proofRpc) {
@@ -634,7 +654,7 @@ export async function depositCNFTFromWalletToPDA(
   try {
     const short = (s: any) => String(s || '').slice(0,8) + '...' + String(s || '').slice(-4)
     console.log('[DEP] Begin deposit', { assetId: short(assetId), wallet: short(walletAddress), playerPDA: short(playerPDA) })
-    const proofRpc = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const proofRpc = getDasUrl() || getRpcUrl()
     const proofUmi = proofRpc ? createUmi(proofRpc).use(mplBubblegum()) : umi
     if (proofRpc) {
       try { (proofUmi as any).use(signerIdentity(serverSigner)) } catch {}
@@ -722,7 +742,7 @@ export async function depositCNFTFromWalletToServer(
   walletAddress: string
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    const proofRpc = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const proofRpc = getDasUrl() || getRpcUrl()
     const proofUmi = proofRpc ? createUmi(proofRpc).use(mplBubblegum()).use(signerIdentity(serverSigner)) : umi
     const pk = publicKey(assetId)
     const fetchStable = async () => {
@@ -783,7 +803,7 @@ export async function depositCNFTFromServerToPDA(
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
     const pk = publicKey(assetId)
-    const rpc = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const rpc = getDasUrl() || getRpcUrl()
     const u = rpc ? createUmi(rpc).use(mplBubblegum()).use(signerIdentity(serverSigner)) : umi
     const short = (s: any) => String(s || '').slice(0,8) + '...' + String(s || '').slice(-4)
     console.log('[DEP2] Begin final hop', { assetId: short(assetId), playerPDA: short(playerPDA) })
