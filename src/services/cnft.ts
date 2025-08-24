@@ -99,7 +99,7 @@ export async function findLatestAssetIdForOwner(ownerAddress: string): Promise<s
         grouping: ['collection', collection],
         page: 1,
         limit: 1,
-        sortBy: { sortBy: 'recentAction', sortOrder: 'desc' }
+        sortBy: { sortBy: 'recent_action', sortOrder: 'desc' }
       }
     } as any;
     const res = await fetch(rpcUrl, {
