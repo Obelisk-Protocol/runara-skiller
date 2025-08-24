@@ -3,7 +3,8 @@ import { publicKey, some } from '@metaplex-foundation/umi';
 import { burn, getAssetWithProof } from '@metaplex-foundation/mpl-bubblegum';
 import { umi } from '../config/solana';
 import { z } from 'zod';
-import { transferCNFTToWallet } from '../services/cnft';
+import { transferCNFTToWallet, depositCNFTFromWalletToPDA, depositCNFTFromServerToPDA, depositCNFTFromWalletToServer } from '../services/cnft';
+import { supabase } from '../config/database';
 // Local metadata cache removed
 
 const router = Router();
@@ -195,6 +196,84 @@ router.post('/burn', async (req: any, res: any) => {
   } catch (err) {
     console.error('❌ Burn error:', err)
     return res.status(500).json({ success: false, error: 'Internal server error' })
+  }
+})
+
+// GET /api/cnft/server-public-key
+router.get('/server-public-key', async (_req: any, res: any) => {
+  try {
+    const key = (umi as any)?.identity?.publicKey?.toString?.() || ''
+    return res.json({ success: true, serverPublicKey: key })
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message || 'Internal error' })
+  }
+})
+
+// POST /api/cnft/deposit-server { assetId, wallet, playerPDA }
+// Deprecated: direct wallet->PDA deposit is disabled; use /deposit-escrow then keep in server custody
+router.post('/deposit-server', async (_req: any, res: any) => {
+  return res.status(410).json({ success: false, error: 'Direct PDA deposits are disabled. Use /api/cnft/deposit-escrow.' })
+})
+
+// POST /api/cnft/deposit-final-hop { assetId, playerPDA }
+// Disabled: escrow-only. Keeping for compatibility, but returning 410.
+router.post('/deposit-final-hop', async (_req: any, res: any) => {
+  return res.status(410).json({ success: false, error: 'Final hop to PDA is disabled. Assets remain in server escrow.' })
+})
+
+// POST /api/cnft/deposit-escrow { assetId, wallet }
+router.post('/deposit-escrow', async (req: any, res: any) => {
+  try {
+    const schema = z.object({
+      assetId: z.string().min(32),
+      wallet: z.string().min(32),
+      playerPDA: z.string().min(32).optional(),
+      slot: z.number().int().min(1).max(5).optional(),
+    })
+    const { assetId, wallet, playerPDA, slot } = schema.parse(req.body || {})
+    const result = await depositCNFTFromWalletToServer(assetId, wallet)
+    if (!result.success) return res.status(400).json({ success: false, error: result.error || 'Escrow hop failed' })
+
+    let savedSlot: number | null = null
+    if (playerPDA) {
+      try {
+        const { data: profile, error: fetchError } = await supabase
+          .from('profiles')
+          .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
+          .eq('player_pda', playerPDA)
+          .single()
+        if (!fetchError && profile) {
+          const isEmpty = (v: any) => {
+            if (!v) return true
+            const s = String(v).trim().toUpperCase()
+            return s === 'EMPTY' || s === 'NULL'
+          }
+          const update: any = {}
+          let chosen: number | null = null
+          if (slot && isEmpty((profile as any)[`character_cnft_${slot}`])) {
+            update[`character_cnft_${slot}`] = assetId
+            chosen = slot
+          }
+          if (!chosen) {
+            for (let s = 1 as 1|2|3|4|5; s <= 5; s++) {
+              if (isEmpty((profile as any)[`character_cnft_${s}`])) { update[`character_cnft_${s}`] = assetId; chosen = s; break }
+            }
+          }
+          if (chosen) {
+            if (!profile.active_character_slot) update.active_character_slot = chosen
+            const { error: updErr } = await supabase
+              .from('profiles')
+              .update(update)
+              .eq('player_pda', playerPDA)
+            if (!updErr) savedSlot = chosen
+          }
+        }
+      } catch {}
+    }
+
+    return res.json({ success: true, signature: result.signature, savedSlot })
+  } catch (e: any) {
+    return res.status(400).json({ success: false, error: e?.message || 'Invalid request' })
   }
 })
 

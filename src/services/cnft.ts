@@ -2,18 +2,33 @@ import {
   getAssetWithProof,
   mintToCollectionV1,
   updateMetadata,
-  transfer
+  transfer,
+  burn,
+  delegate,
+  mplBubblegum
 } from '@metaplex-foundation/mpl-bubblegum';
-import { burn } from '@metaplex-foundation/mpl-bubblegum';
 import { 
   publicKey, 
   some, 
   none,
-  generateSigner
+  generateSigner,
+  signerIdentity
 } from '@metaplex-foundation/umi';
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { umi, serverSigner, COLLECTION_MINT, MERKLE_TREE } from '../config/solana';
 import { CharacterStats, Character } from '../types/character';
 import { uploadJsonToArweave } from './storage';
+
+// Resolve default character image URL
+function resolveDefaultCharacterImageUrl(seedName?: string): string {
+  const explicit = process.env.CHARACTER_DEFAULT_IMAGE_URL || process.env.NEXT_PUBLIC_CHARACTER_DEFAULT_IMAGE_URL
+  if (explicit && explicit.startsWith('http')) return explicit
+  const front = (process.env.FRONTEND_BASE_URL || process.env.NEXT_PUBLIC_FRONTEND_URL || '').replace(/\/$/, '')
+  if (front) return `${front}/images/characternft/charsillo.png`
+  // Fallback to deterministic avatar
+  const name = seedName || 'Adventurer'
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4`
+}
 
 // Exactly matching your frontend's character generation
 export function generateDefaultCharacterStats(name: string, characterClass: string = 'Adventurer'): CharacterStats {
@@ -149,7 +164,7 @@ export async function createCharacterCNFT(
     const characterStats = generateDefaultCharacterStats(characterName, characterClass);
     
     // Build Metaplex JSON and upload to Arweave
-    const imageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(characterName)}&backgroundColor=b6e3f4`
+    const imageUrl = resolveDefaultCharacterImageUrl(characterName)
     const jsonPayload = {
       name: `${characterName} (Level ${characterStats.level}, Combat ${characterStats.combatLevel})`,
       symbol: 'PLAYER',
@@ -172,7 +187,7 @@ export async function createCharacterCNFT(
         { trait_type: 'Gat', value: characterStats.skills.gathering.level.toString() }
       ],
       properties: {
-        files: [ { uri: imageUrl, type: 'image/svg+xml' } ]
+        files: [ { uri: imageUrl, type: imageUrl.endsWith('.png') ? 'image/png' : 'image/svg+xml' } ]
       }
     }
     const { uri: metadataUri } = await uploadJsonToArweave(jsonPayload)
@@ -317,7 +332,7 @@ export async function updateCharacterCNFT(
     }
     
     // Build new JSON and upload to Arweave (production standard)
-    const imageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(characterStats.name)}&backgroundColor=b6e3f4`
+    const imageUrl = resolveDefaultCharacterImageUrl(characterStats.name)
     const jsonPayload = {
       name: `${characterStats.name} (Level ${characterStats.level}${characterStats.combatLevel != null ? `, Combat ${characterStats.combatLevel}` : ''})`,
       symbol: 'PLAYER',
@@ -514,27 +529,95 @@ export async function transferCNFTToWallet(
   walletAddress: string
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    // Fetch asset with proof (required for transfer)
-    const assetWithProof = await getAssetWithProof(umi, publicKey(assetId), { truncateCanopy: true })
-
-    // Build transfer tx using server signer (leafDelegate) and PDA as current owner
-    const tx = transfer(umi, {
-      ...assetWithProof,
-      leafOwner: publicKey(playerPDA),
-      newLeafOwner: publicKey(walletAddress),
+    const shorten = (s: any, start = 8, end = 4) => {
+      const x = String(s || '')
+      return x.length > start + end ? `${x.slice(0, start)}...${x.slice(-end)}` : x
+    }
+    console.log('[WD] Begin withdraw', {
+      assetId: shorten(assetId),
+      playerPDA: shorten(playerPDA),
+      wallet: shorten(walletAddress)
     })
+    // Use a proof RPC that matches the one used by the client (prefer DAS/Helius)
+    const proofRpc = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const proofUmi = proofRpc ? createUmi(proofRpc).use(mplBubblegum()) : umi
+    // Reuse server signer identity for sending if we fall back to umi
+    if (proofRpc) {
+      try { (proofUmi as any).use(signerIdentity(serverSigner)) } catch {}
+    }
+    console.log('[WD] RPCs', { proofRpc: proofRpc || '(umi default)' })
+    // Helper to build and send with robust retry on stale proof
+    const sendWithRetry = async (retries = 2): Promise<string> => {
+      let lastErr: any = null
+      for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+          // Fetch two consecutive canopy-truncated proofs and prefer a stable root
+          const pk = publicKey(assetId)
+          const first = await getAssetWithProof(proofUmi, pk, { truncateCanopy: true })
+          await new Promise(r => setTimeout(r, 200))
+          const second = await getAssetWithProof(proofUmi, pk, { truncateCanopy: true })
+          const r1 = String((first as any).root || '')
+          const r2 = String((second as any).root || '')
+          const assetWithProof = r1 === r2 ? second : first
+          console.log('[WD] Attempt proof roots', { attempt: attempt + 1, r1: shorten(r1, 6, 6), r2: shorten(r2, 6, 6), stable: r1 === r2, proofLen: (assetWithProof as any)?.proof?.length })
+          // Determine transfer path based on current owner
+          const currentOwner = String(assetWithProof.leafOwner)
+          const currentDelegate = String((assetWithProof as any)?.leafDelegate || '')
+          const pdaStr = String(publicKey(playerPDA))
+          const serverStr = String(serverSigner.publicKey)
+          console.log('[WD] Leaf state', { owner: shorten(currentOwner), delegate: shorten(currentDelegate) || '(none)' })
 
-    const result = await tx.sendAndConfirm(umi, { send: { skipPreflight: false } })
-    const rawSig: any = (result as any)?.signature
-    let signature = ''
-    try {
-      if (typeof rawSig === 'string') signature = rawSig
-      else if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
-        const bs58 = require('bs58')
-        signature = bs58.encode(Uint8Array.from(rawSig))
+          let tx
+          if (currentOwner === pdaStr) {
+            console.log('[WD] Path: PDA → wallet')
+            tx = transfer(proofUmi, {
+              ...assetWithProof,
+              leafOwner: publicKey(playerPDA),
+              leafDelegate: serverSigner.publicKey,
+              newLeafOwner: publicKey(walletAddress),
+            })
+          } else if (currentOwner === serverStr) {
+            console.log('[WD] Path: ESCROW(server) → wallet')
+            tx = transfer(proofUmi, {
+              ...assetWithProof,
+              leafOwner: serverSigner.publicKey,
+              leafDelegate: serverSigner.publicKey,
+              newLeafOwner: publicKey(walletAddress),
+            })
+          } else {
+            console.error('[WD] Owner mismatch', { currentOwner: shorten(currentOwner), expectedPDA: shorten(pdaStr), expectedServer: shorten(serverStr) })
+            throw new Error('Asset is not owned by player PDA or server escrow')
+          }
+          // Send quickly; prefer finalized confirmation to reduce reorg/drift issues
+          console.log('[WD] Sending tx...')
+          const sendStart = Date.now()
+          const result = await tx.sendAndConfirm(proofUmi, { send: { skipPreflight: true }, confirm: { commitment: 'finalized' as any } })
+          console.log('[WD] Tx confirmed', { ms: Date.now() - sendStart })
+          const rawSig: any = (result as any)?.signature
+          if (typeof rawSig === 'string') return rawSig
+          if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
+            const bs58 = require('bs58')
+            return bs58.encode(Uint8Array.from(rawSig))
+          }
+          return String(rawSig || '')
+        } catch (err: any) {
+          lastErr = err
+          const msg = String(err?.message || err)
+          // Handle stale proof/root recompute – refetch and retry
+          if (msg.includes('Invalid root recomputed') || msg.includes('ConcurrentMerkleTree') || msg.includes('ProgramFailedToComplete') || msg.includes('failed to complete')) {
+            const logs = (err as any)?.transactionLogs
+            if (logs) console.warn('[WD] Program logs', logs)
+            await new Promise(r => setTimeout(r, 1200))
+            continue
+          }
+          // Leaf authority errors bubble up immediately
+          throw err
+        }
       }
-    } catch {}
+      throw lastErr || new Error('Transfer failed after retries')
+    }
 
+    const signature = await sendWithRetry(8)
     return { success: true, signature }
   } catch (error) {
     console.error('❌ cNFT transfer error:', error)
@@ -542,6 +625,239 @@ export async function transferCNFTToWallet(
   }
 }
 
+// Server-signed deposit: wallet first sets delegate = serverSigner, then server moves to playerPDA
+export async function depositCNFTFromWalletToPDA(
+  assetId: string,
+  walletAddress: string,
+  playerPDA: string
+): Promise<{ success: boolean; signature?: string; error?: string }> {
+  try {
+    const short = (s: any) => String(s || '').slice(0,8) + '...' + String(s || '').slice(-4)
+    console.log('[DEP] Begin deposit', { assetId: short(assetId), wallet: short(walletAddress), playerPDA: short(playerPDA) })
+    const proofRpc = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const proofUmi = proofRpc ? createUmi(proofRpc).use(mplBubblegum()) : umi
+    if (proofRpc) {
+      try { (proofUmi as any).use(signerIdentity(serverSigner)) } catch {}
+    }
+    console.log('[DEP] RPC', { proofRpc: proofRpc || '(umi default)' })
+
+    const pk = publicKey(assetId)
+
+    const fetchStable = async () => {
+      const a = await getAssetWithProof(proofUmi, pk, { truncateCanopy: true })
+      await new Promise(r => setTimeout(r, 200))
+      const b = await getAssetWithProof(proofUmi, pk, { truncateCanopy: true })
+      const r1 = String((a as any).root || '')
+      const r2 = String((b as any).root || '')
+      console.log('[DEP] Proof roots', { r1: short(r1), r2: short(r2), stable: r1 === r2, proofLen: (r1 === r2 ? (b as any)?.proof?.length : (a as any)?.proof?.length) })
+      return r1 === r2 ? b : a
+    }
+
+    const sendWithRetry = async (retries = 8): Promise<string> => {
+      let lastErr: any = null
+      for (let i = 0; i < retries; i++) {
+        try {
+          const proof = await fetchStable()
+          const ownerNow = String(proof.leafOwner)
+          const delegateNow = String((proof as any)?.leafDelegate || '')
+          const idx = (proof as any)?.index ?? (proof as any)?.leafIndex ?? null
+          const nonce = (proof as any)?.nonce ?? null
+          const root = String((proof as any)?.root || '')
+          const pArr: any[] = (proof as any)?.proof || []
+          const head = (pArr[0] || '').toString()
+          const tail = (pArr[pArr.length - 1] || '').toString()
+          console.log('[DEP] Leaf state', {
+            owner: short(ownerNow),
+            delegate: short(delegateNow),
+            index: idx,
+            nonce,
+            root: short(root),
+            proofLen: pArr.length,
+            proofHead: short(head),
+            proofTail: short(tail)
+          })
+          if (ownerNow !== String(publicKey(walletAddress))) throw new Error('Deposit: current owner is not the wallet')
+          if (delegateNow !== String(serverSigner.publicKey)) throw new Error('Deposit: server is not delegate; run delegate step first')
+          const tx = transfer(proofUmi, {
+            ...proof,
+            leafOwner: publicKey(walletAddress),
+            leafDelegate: serverSigner.publicKey,
+            newLeafOwner: publicKey(playerPDA),
+          })
+          console.log('[DEP] Sending tx...', { attempt: i + 1 })
+          const res = await tx.sendAndConfirm(proofUmi, { send: { skipPreflight: true }, confirm: { commitment: 'finalized' as any } })
+          console.log('[DEP] Tx confirmed')
+          const rawSig: any = (res as any)?.signature
+          if (typeof rawSig === 'string') return rawSig
+          if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
+            const bs58 = require('bs58')
+            return bs58.encode(Uint8Array.from(rawSig))
+          }
+          return String(rawSig || '')
+        } catch (err: any) {
+          lastErr = err
+          const msg = String(err?.message || err)
+          if ((err as any)?.transactionLogs) console.warn('[DEP] Program logs', (err as any).transactionLogs)
+          if (msg.includes('Invalid root recomputed') || msg.includes('ProgramFailedToComplete') || msg.includes('ConcurrentMerkleTree') || msg.includes('failed to complete')) {
+            await new Promise(r => setTimeout(r, 1200))
+            continue
+          }
+          throw err
+        }
+      }
+      throw lastErr || new Error('Deposit transfer failed after retries')
+    }
+
+    const sig = await sendWithRetry(8)
+    return { success: true, signature: sig }
+  } catch (e: any) {
+    console.error('❌ depositCNFTFromWalletToPDA error:', e)
+    return { success: false, error: e?.message || 'Unknown error' }
+  }
+}
+
+// Server-signed escrow hop: wallet -> server (requires delegate = serverSigner already set)
+export async function depositCNFTFromWalletToServer(
+  assetId: string,
+  walletAddress: string
+): Promise<{ success: boolean; signature?: string; error?: string }> {
+  try {
+    const proofRpc = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const proofUmi = proofRpc ? createUmi(proofRpc).use(mplBubblegum()).use(signerIdentity(serverSigner)) : umi
+    const pk = publicKey(assetId)
+    const fetchStable = async () => {
+      const a = await getAssetWithProof(proofUmi, pk, { truncateCanopy: true })
+      await new Promise(r => setTimeout(r, 200))
+      const b = await getAssetWithProof(proofUmi, pk, { truncateCanopy: true })
+      const r1 = String((a as any).root || '')
+      const r2 = String((b as any).root || '')
+      return r1 === r2 ? b : a
+    }
+    const sendWithRetry = async (retries = 8): Promise<string> => {
+      let last: any = null
+      for (let i = 0; i < retries; i++) {
+        try {
+          const proof = await fetchStable()
+          const ownerNow = String(proof.leafOwner)
+          const delegateNow = String((proof as any)?.leafDelegate || '')
+          if (ownerNow !== String(publicKey(walletAddress))) throw new Error('Escrow hop: current owner is not wallet')
+          if (delegateNow !== String(serverSigner.publicKey)) throw new Error('Escrow hop: server is not delegate')
+          const tx = transfer(proofUmi, {
+            ...proof,
+            leafOwner: publicKey(walletAddress),
+            leafDelegate: serverSigner.publicKey,
+            newLeafOwner: serverSigner.publicKey,
+          })
+          const res = await tx.sendAndConfirm(proofUmi, { send: { skipPreflight: true }, confirm: { commitment: 'finalized' as any } })
+          const raw: any = (res as any)?.signature
+          if (typeof raw === 'string') return raw
+          if (raw && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
+            const bs58 = require('bs58')
+            return bs58.encode(Uint8Array.from(raw))
+          }
+          return String(raw || '')
+        } catch (e: any) {
+          last = e
+          const msg = String(e?.message || e)
+          if ((e as any)?.transactionLogs) console.warn('[ESCROW] logs', (e as any).transactionLogs)
+          if (msg.includes('Invalid root recomputed') || msg.includes('ProgramFailedToComplete') || msg.includes('ConcurrentMerkleTree') || msg.includes('failed to complete')) {
+            await new Promise(r => setTimeout(r, 1200))
+            continue
+          }
+          throw e
+        }
+      }
+      throw last || new Error('Escrow hop failed after retries')
+    }
+    const sig = await sendWithRetry(8)
+    return { success: true, signature: sig }
+  } catch (e: any) {
+    console.error('❌ depositCNFTFromWalletToServer error:', e)
+    return { success: false, error: e?.message || 'Unknown error' }
+  }
+}
+// Server-signed final hop: asset must be owned by server wallet; move to playerPDA and attempt to preserve delegate
+export async function depositCNFTFromServerToPDA(
+  assetId: string,
+  playerPDA: string
+): Promise<{ success: boolean; signature?: string; error?: string }> {
+  try {
+    const pk = publicKey(assetId)
+    const rpc = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const u = rpc ? createUmi(rpc).use(mplBubblegum()).use(signerIdentity(serverSigner)) : umi
+    const short = (s: any) => String(s || '').slice(0,8) + '...' + String(s || '').slice(-4)
+    console.log('[DEP2] Begin final hop', { assetId: short(assetId), playerPDA: short(playerPDA) })
+
+    const fetchStable = async () => {
+      const a = await getAssetWithProof(u, pk, { truncateCanopy: true })
+      await new Promise(r => setTimeout(r, 200))
+      const b = await getAssetWithProof(u, pk, { truncateCanopy: true })
+      const r1 = String((a as any).root || '')
+      const r2 = String((b as any).root || '')
+      console.log('[DEP2] roots', { r1: short(r1), r2: short(r2), stable: r1 === r2 })
+      return r1 === r2 ? b : a
+    }
+
+    const sendWithRetry = async (retries = 8): Promise<string> => {
+      let last: any = null
+      for (let i = 0; i < retries; i++) {
+        try {
+          const proof = await fetchStable()
+          const ownerNow = String(proof.leafOwner)
+          console.log('[DEP2] owner', short(ownerNow))
+          if (ownerNow !== String(serverSigner.publicKey)) throw new Error('Final hop: owner is not server')
+
+          // Optionally ensure delegate is server (as owner, we can set it)
+          try {
+            const prevDel = (proof as any)?.leafDelegate || serverSigner.publicKey
+            const del = delegate(u as any, {
+              ...proof,
+              leafOwner: serverSigner as any,
+              previousLeafDelegate: publicKey(prevDel),
+              newLeafDelegate: serverSigner.publicKey
+            })
+            await del.sendAndConfirm(u as any, { send: { skipPreflight: true } })
+          } catch {}
+
+          const tx = transfer(u, {
+            ...proof,
+            leafOwner: serverSigner.publicKey,
+            leafDelegate: serverSigner.publicKey,
+            // Try to preserve delegate across transfer if supported by builder
+            // @ts-ignore
+            newLeafDelegate: serverSigner.publicKey,
+            newLeafOwner: publicKey(playerPDA)
+          })
+          console.log('[DEP2] sending', { attempt: i + 1 })
+          const res = await tx.sendAndConfirm(u, { send: { skipPreflight: true }, confirm: { commitment: 'finalized' as any } })
+          const raw: any = (res as any)?.signature
+          if (typeof raw === 'string') return raw
+          if (raw && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
+            const bs58 = require('bs58')
+            return bs58.encode(Uint8Array.from(raw))
+          }
+          return String(raw || '')
+        } catch (e: any) {
+          last = e
+          const msg = String(e?.message || e)
+          if ((e as any)?.transactionLogs) console.warn('[DEP2] logs', (e as any).transactionLogs)
+          if (msg.includes('Invalid root recomputed') || msg.includes('ProgramFailedToComplete') || msg.includes('ConcurrentMerkleTree') || msg.includes('failed to complete')) {
+            await new Promise(r => setTimeout(r, 1200))
+            continue
+          }
+          throw e
+        }
+      }
+      throw last || new Error('Final hop failed after retries')
+    }
+
+    const sig = await sendWithRetry(8)
+    return { success: true, signature: sig }
+  } catch (e: any) {
+    console.error('❌ depositCNFTFromServerToPDA error:', e)
+    return { success: false, error: e?.message || 'Unknown error' }
+  }
+}
 // Debug helper: returns current on-chain uri and parsed attributes from the JSON
 export async function getAssetMetadataDebug(assetId: string): Promise<{ uri?: string; name?: string; attributes?: any[] }> {
   try {
@@ -774,7 +1090,7 @@ async function storeCharacterMetadata(metadataId: string, characterStats: Charac
     const metadataPayload = {
       name: characterStats.name,
       description: `Level ${characterStats.level} ${characterStats.characterClass} with ${characterStats.totalLevel} total skill levels`,
-      image: `https://api.dicebear.com/7.x/avataaars/svg?seed=${characterStats.name}&backgroundColor=b6e3f4`,
+      image: resolveDefaultCharacterImageUrl(characterStats.name),
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
         { trait_type: 'Level', value: characterStats.level.toString() },

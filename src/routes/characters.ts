@@ -118,6 +118,17 @@ const FetchPlayerCNFTsSchema = z.object({
   playerId: z.string()
 });
 
+const InventoryUnionSchema = z.object({
+  playerPDA: z.string().min(32),
+  serverEscrow: z.string().min(32).optional(),
+});
+
+const AssignSlotAfterDepositSchema = z.object({
+  playerPDA: z.string().min(32),
+  assetId: z.string().min(32),
+  slot: z.number().int().min(1).max(5).optional()
+});
+
 const TrainSkillSchema = z.object({
   assetId: z.string(),
   skillName: z.enum(['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'gathering']),
@@ -239,26 +250,31 @@ router.post('/create', async (req: any, res: any) => {
             .single();
           
           if (profile && !fetchError) {
-            // Find the next available character slot
+            // Helper: treat null/''/'EMPTY'/'NULL' as empty
+            const isEmpty = (v: any) => {
+              const s = (v == null ? '' : String(v)).trim().toUpperCase()
+              return s === '' || s === 'EMPTY' || s === 'NULL'
+            }
+            // Decide which slot to write, honoring client-provided slot if empty or 'EMPTY'
             let updateData: any = {};
-            
-            // If client requested a slot and it's empty, respect it
             type SlotKey = `character_cnft_${1|2|3|4|5}`
             if (slot) {
               const slotKey = (`character_cnft_${slot}` as unknown) as SlotKey
-              if (!(profile as any)[slotKey]) {
+              const cur = (profile as any)[slotKey]
+              if (isEmpty(cur)) {
                 (updateData as any)[slotKey] = resolvedId
               }
+              // If client requested a slot but it is not empty, do NOT auto-fill another slot here
+            } else {
+              // No specific slot requested: choose first truly empty slot
+              if (isEmpty(profile.character_cnft_1)) updateData.character_cnft_1 = resolvedId;
+              else if (isEmpty(profile.character_cnft_2)) updateData.character_cnft_2 = resolvedId;
+              else if (isEmpty(profile.character_cnft_3)) updateData.character_cnft_3 = resolvedId;
+              else if (isEmpty(profile.character_cnft_4)) updateData.character_cnft_4 = resolvedId;
+              else if (isEmpty(profile.character_cnft_5)) updateData.character_cnft_5 = resolvedId;
             }
             if (Object.keys(updateData).length > 0 && !profile.active_character_slot) {
-              if (!profile.active_character_slot) updateData.active_character_slot = slot;
-            } else if (Object.keys(updateData).length === 0) {
-              // Otherwise use first available
-              if (!profile.character_cnft_1) updateData.character_cnft_1 = resolvedId;
-              else if (!profile.character_cnft_2) updateData.character_cnft_2 = resolvedId;
-              else if (!profile.character_cnft_3) updateData.character_cnft_3 = resolvedId;
-              else if (!profile.character_cnft_4) updateData.character_cnft_4 = resolvedId;
-              else if (!profile.character_cnft_5) updateData.character_cnft_5 = resolvedId;
+              updateData.active_character_slot = slot || 1;
             }
             
             if (Object.keys(updateData).length > 0) {
@@ -357,6 +373,136 @@ router.post('/create', async (req: any, res: any) => {
     });
   }
 });
+
+// POST /api/characters/inventory-union
+// Returns merged inventory from PDA owner and server escrow, with storageLocation tag
+router.post('/inventory-union', async (req: any, res: any) => {
+  try {
+    const { playerPDA, serverEscrow } = InventoryUnionSchema.parse(req.body || {})
+
+    // Collect asset IDs from DB slots first (authoritative for gameplay)
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
+      .eq('player_pda', playerPDA)
+      .single()
+
+    const dbAssetIds = (profile ? [
+      profile.character_cnft_1,
+      profile.character_cnft_2,
+      profile.character_cnft_3,
+      profile.character_cnft_4,
+      profile.character_cnft_5,
+    ] : []).filter(Boolean) as string[]
+
+    // Merge with DAS owner queries: PDA and server escrow
+    const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    const collection = process.env.CNFT_COLLECTION_ADDRESS || ''
+    const fetchAssetsByOwner = async (owner: string) => {
+      if (!rpcUrl) return [] as any[]
+      const body: any = {
+        jsonrpc: '2.0', id: 'getAssetsByOwner', method: 'getAssetsByOwner', params: { ownerAddress: owner, page: 1, limit: 100 }
+      }
+      const r = await fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const j: any = await r.json().catch(() => ({}))
+      let items: any[] = j?.result?.items || []
+      if (collection) items = items.filter((a: any) => (a?.grouping || []).some((g: any) => g?.group_key === 'collection' && g?.group_value === collection))
+      return items
+    }
+
+    const [pdaItems, escrowItems] = await Promise.all([
+      fetchAssetsByOwner(playerPDA),
+      serverEscrow ? fetchAssetsByOwner(serverEscrow) : Promise.resolve([])
+    ])
+
+    // Build unified map by asset id
+    const map = new Map<string, any>()
+    const tagPush = (arr: any[], location: 'PDA' | 'ESCROW') => {
+      for (const a of arr) {
+        const id = a?.id
+        if (!id) continue
+        const prev = map.get(id)
+        map.set(id, { ...(prev || {}), id, raw: a, storageLocation: location })
+      }
+    }
+    tagPush(pdaItems, 'PDA')
+    tagPush(escrowItems, 'ESCROW')
+
+    // Ensure DB-slot assets are included even if not currently discoverable via DAS (indexer lag)
+    for (const id of dbAssetIds) {
+      if (!map.has(id)) map.set(id, { id, raw: null, storageLocation: 'PDA' })
+    }
+
+    // Hydrate basic character view using DB first, fallback to chain
+    const characters: any[] = []
+    for (const [assetId, entry] of map.entries()) {
+      try {
+        const row = await NftColumns.get(assetId)
+        if (row) {
+          const stats = NftColumns.columnsToStats(row)
+          characters.push({ id: assetId, characterStats: stats })
+          continue
+        }
+        const c = await fetchCharacterFromCNFT(assetId)
+        if (c) characters.push({ ...c })
+        else characters.push({ id: assetId, characterStats: null })
+      } catch {
+        characters.push({ id: assetId, characterStats: null })
+      }
+    }
+
+    return res.json({ success: true, characters })
+  } catch (e: any) {
+    return res.status(400).json({ success: false, error: e?.message || 'Invalid request' })
+  }
+})
+
+// POST /api/characters/assign-slot-after-deposit
+// Adds the deposited assetId into the first available profile slot (or specific slot if provided)
+router.post('/assign-slot-after-deposit', async (req: any, res: any) => {
+  try {
+    const { playerPDA, assetId, slot } = AssignSlotAfterDepositSchema.parse(req.body || {})
+
+    const { data: profile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
+      .eq('player_pda', playerPDA)
+      .single()
+    if (fetchError || !profile) return res.status(404).json({ success: false, error: 'Profile not found' })
+
+    const update: any = {}
+    let chosenSlot: number | null = null
+    const isEmpty = (s: number) => {
+      const val = (profile as any)[`character_cnft_${s}`]
+      if (!val) return true
+      const str = String(val).trim().toUpperCase()
+      return str === 'EMPTY' || str === 'NULL'
+    }
+
+    if (slot && isEmpty(slot)) {
+      update[`character_cnft_${slot}`] = assetId
+      chosenSlot = slot
+    }
+    if (!chosenSlot) {
+      for (let s = 1 as 1|2|3|4|5; s <= 5; s++) {
+        if (isEmpty(s)) { update[`character_cnft_${s}`] = assetId; chosenSlot = s; break }
+      }
+    }
+    if (!chosenSlot) return res.json({ success: true, updated: false, reason: 'All slots full' })
+
+    if (!profile.active_character_slot) update.active_character_slot = chosenSlot
+
+    const { error: updErr } = await supabase
+      .from('profiles')
+      .update(update)
+      .eq('player_pda', playerPDA)
+    if (updErr) return res.status(500).json({ success: false, error: updErr.message })
+
+    return res.json({ success: true, updated: true, slot: chosenSlot })
+  } catch (e: any) {
+    return res.status(400).json({ success: false, error: e?.message || 'Invalid request' })
+  }
+})
 
 // GET /api/characters/:assetId/debug
 router.get('/:assetId/debug', async (req: any, res: any) => {
