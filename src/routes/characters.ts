@@ -5,6 +5,40 @@ import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT, findL
 import { CharacterService } from '../services/character';
 import { MetadataStore, NftColumns } from '../services/database';
 import { supabase } from '../config/database';
+
+const router = Router();
+
+// POST /api/characters/clear-slot-after-withdraw
+router.post('/clear-slot-after-withdraw', async (req: any, res: any) => {
+  try {
+    const schema = z.object({
+      playerPDA: z.string(),
+      assetId: z.string(),
+    })
+    const { playerPDA, assetId } = schema.parse(req.body || {})
+    const { data: profile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('id, character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
+      .eq('player_pda', playerPDA)
+      .single()
+    if (fetchError || !profile) return res.status(404).json({ success: false, error: 'Profile not found' })
+
+    const update: any = {}
+    for (let i = 1 as 1|2|3|4|5; i <= 5; i++) {
+      const key = `character_cnft_${i}` as const
+      if ((profile as any)[key] === assetId) update[key] = null
+    }
+    if (Object.keys(update).length === 0) return res.json({ success: true, updated: false })
+    const { error: updErr } = await supabase
+      .from('profiles')
+      .update(update)
+      .eq('player_pda', playerPDA)
+    if (updErr) return res.status(500).json({ success: false, error: updErr.message })
+    return res.json({ success: true, updated: true })
+  } catch (e: any) {
+    return res.status(400).json({ success: false, error: e?.message || 'Invalid request' })
+  }
+})
 import { addSkillXp, getAllSkillXp, getXpBounds, computeProgress } from '../services/nft-skill-experience';
 
 // Lightweight XP action rules. Keep server-authoritative, don't trust client-provided XP.
@@ -22,7 +56,6 @@ const XP_ACTION_RULES = {
 } as const
 type XpActionKey = keyof typeof XP_ACTION_RULES
 
-const router = Router();
 
 // Validation schemas
 const CreateCharacterSchema = z.object({

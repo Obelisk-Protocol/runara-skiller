@@ -3,6 +3,7 @@ import { publicKey, some } from '@metaplex-foundation/umi';
 import { burn, getAssetWithProof } from '@metaplex-foundation/mpl-bubblegum';
 import { umi } from '../config/solana';
 import { z } from 'zod';
+import { transferCNFTToWallet } from '../services/cnft';
 // Local metadata cache removed
 
 const router = Router();
@@ -194,6 +195,25 @@ router.post('/burn', async (req: any, res: any) => {
   } catch (err) {
     console.error('❌ Burn error:', err)
     return res.status(500).json({ success: false, error: 'Internal server error' })
+  }
+})
+
+// POST /api/cnft/withdraw { assetId, playerPDA, wallet }
+router.post('/withdraw', async (req: any, res: any) => {
+  try {
+    const schema = z.object({
+      assetId: z.string().min(32),
+      playerPDA: z.string().min(32),
+      wallet: z.string().min(32)
+    })
+    const { assetId, playerPDA, wallet } = schema.parse(req.body || {})
+
+    const result = await transferCNFTToWallet(assetId, playerPDA, wallet)
+    if (result.success) return res.json({ success: true, signature: result.signature })
+    return res.status(400).json({ success: false, error: result.error || 'Transfer failed' })
+  } catch (err: any) {
+    console.error('❌ Withdraw error:', err)
+    return res.status(400).json({ success: false, error: err?.message || 'Invalid request' })
   }
 })
 

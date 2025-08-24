@@ -1,7 +1,8 @@
 import {
   getAssetWithProof,
   mintToCollectionV1,
-  updateMetadata
+  updateMetadata,
+  transfer
 } from '@metaplex-foundation/mpl-bubblegum';
 import { burn } from '@metaplex-foundation/mpl-bubblegum';
 import { 
@@ -503,6 +504,41 @@ export async function fetchCharacterFromCNFT(assetId: string): Promise<Character
   } catch (error) {
     console.error('❌ Error fetching character from cNFT (outer):', error);
     return null;
+  }
+}
+
+// Transfer compressed NFT from player PDA to a connected wallet
+export async function transferCNFTToWallet(
+  assetId: string,
+  playerPDA: string,
+  walletAddress: string
+): Promise<{ success: boolean; signature?: string; error?: string }> {
+  try {
+    // Fetch asset with proof (required for transfer)
+    const assetWithProof = await getAssetWithProof(umi, publicKey(assetId), { truncateCanopy: true })
+
+    // Build transfer tx using server signer (leafDelegate) and PDA as current owner
+    const tx = transfer(umi, {
+      ...assetWithProof,
+      leafOwner: publicKey(playerPDA),
+      newLeafOwner: publicKey(walletAddress),
+    })
+
+    const result = await tx.sendAndConfirm(umi, { send: { skipPreflight: false } })
+    const rawSig: any = (result as any)?.signature
+    let signature = ''
+    try {
+      if (typeof rawSig === 'string') signature = rawSig
+      else if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
+        const bs58 = require('bs58')
+        signature = bs58.encode(Uint8Array.from(rawSig))
+      }
+    } catch {}
+
+    return { success: true, signature }
+  } catch (error) {
+    console.error('❌ cNFT transfer error:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
 

@@ -48,6 +48,45 @@ router.post('/get-assets-by-owner', async (req: any, res: any) => {
   }
 })
 
+// POST /api/das/get-eligible-owner-assets
+// Filters by optional collection, symbol includes, name includes, and/or merkle tree.
+router.post('/get-eligible-owner-assets', async (req: any, res: any) => {
+  try {
+    const { ownerAddress, merkleTree, collection, symbolIncludes, nameIncludes, page = 1, limit = 100 } = req.body || {}
+    if (!ownerAddress) {
+      return res.status(400).json({ success: false, error: 'Missing ownerAddress' })
+    }
+
+    const rpcUrl = process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || ''
+    if (!rpcUrl) {
+      return res.status(500).json({ success: false, error: 'SOLANA_RPC_URL not configured' })
+    }
+
+    const body = {
+      jsonrpc: '2.0',
+      id: 'getAssetsByOwner',
+      method: 'getAssetsByOwner',
+      params: { ownerAddress, page, limit }
+    } as any
+
+    const rpcRes = await fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const json: any = await rpcRes.json()
+    if (json?.error) return res.json({ success: true, assets: [], message: 'DAS error', details: json.error })
+
+    let items: any[] = json?.result?.items || []
+    // Basic eligibility filters
+    if (merkleTree) items = items.filter((a: any) => a?.compression?.tree === merkleTree)
+    if (collection) items = items.filter((a: any) => (a?.grouping || []).some((g: any) => g?.group_key === 'collection' && g?.group_value === collection))
+    if (symbolIncludes) items = items.filter((a: any) => String(a?.content?.metadata?.symbol || '').toUpperCase().includes(String(symbolIncludes).toUpperCase()))
+    if (nameIncludes) items = items.filter((a: any) => String(a?.content?.metadata?.name || '').toUpperCase().includes(String(nameIncludes).toUpperCase()))
+
+    return res.json({ success: true, assets: items, total: items.length, ownerAddress, merkleTree: merkleTree || null, collection: collection || null })
+  } catch (err) {
+    console.error('❌ get-eligible-owner-assets error:', err)
+    return res.status(500).json({ success: false, error: 'Internal server error' })
+  }
+})
+
 // POST /api/das/extract-asset-id
 // Params: signature (string), playerId or playerPDA, merkleTree (optional)
 router.post('/extract-asset-id', async (req: any, res: any) => {
