@@ -392,11 +392,13 @@ export async function updateCharacterCNFT(
     // Store detailed character data off-chain (dev fallback only)
     // await storeCharacterMetadata(metadataId, characterStats);
 
-    // On-chain update: ONLY update name to keep leaf payload minimal (align with old API)
-    const updateArgs = {
-      name: some(displayName),
+    // On-chain update: keep the instruction size small to avoid exceeding
+    // the Bubblegum transaction size limit. Update only the URI on-chain;
+    // the new JSON contains the updated name/levels for indexers.
+    const updateArgs: any = {
+      name: none<string>(),
       uri: some(newUri)
-    } as const;
+    };
     
     // Determine leaf owner (exactly like frontend)
     const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;

@@ -40,7 +40,7 @@ router.post('/clear-slot-after-withdraw', async (req: any, res: any) => {
     return res.status(400).json({ success: false, error: e?.message || 'Invalid request' })
   }
 })
-import { addSkillXp, getAllSkillXp, getXpBounds, computeProgress, markAssetSynced } from '../services/nft-skill-experience';
+ import { addSkillXp, getAllSkillXp, getXpBounds, computeProgress, markAssetSynced } from '../services/nft-skill-experience';
 
 // Lightweight XP action rules. Keep server-authoritative, don't trust client-provided XP.
 const XP_ACTION_RULES = {
