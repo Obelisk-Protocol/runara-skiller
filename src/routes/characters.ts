@@ -40,7 +40,7 @@ router.post('/clear-slot-after-withdraw', async (req: any, res: any) => {
     return res.status(400).json({ success: false, error: e?.message || 'Invalid request' })
   }
 })
-import { addSkillXp, getAllSkillXp, getXpBounds, computeProgress } from '../services/nft-skill-experience';
+import { addSkillXp, getAllSkillXp, getXpBounds, computeProgress, markAssetSynced } from '../services/nft-skill-experience';
 
 // Lightweight XP action rules. Keep server-authoritative, don't trust client-provided XP.
 const XP_ACTION_RULES = {
@@ -823,7 +823,28 @@ router.post('/add-skill-xp', async (req: any, res: any) => {
     const { assetId, skillName, xpGain, playerPDA, source, sessionId, gameMode, additionalData, idempotencyKey } = AddSkillXpSchema.parse(req.body)
     await assertAssetOwnedByPda(assetId, playerPDA)
     const result = await addSkillXp(assetId, skillName, xpGain, { idempotencyKey, playerPDA, source, sessionId, gameMode, additionalData })
-    return res.json({ success: true, ...result })
+
+    // Immediate on-chain metadata update on level-up (cost-effective)
+    let metadataUpdated = false
+    let signature: string | undefined
+    if (result.leveledUp) {
+      try {
+        const row = await NftColumns.get(assetId)
+        if (row) {
+          const stats = NftColumns.columnsToStats(row)
+          const upd = await updateCharacterCNFT(assetId, stats, playerPDA)
+          if (upd.success) {
+            metadataUpdated = true
+            signature = upd.signature
+            await markAssetSynced(assetId)
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Immediate metadata update failed; background worker will retry', e)
+      }
+    }
+
+    return res.json({ success: true, ...result, metadataUpdated, signature })
   } catch (error) {
     console.error('❌ Add skill XP error:', error)
     return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' })
