@@ -179,8 +179,25 @@ function verifyHmacSignature(payload: string, signature: string | undefined): bo
 }
 
 async function assertAssetOwnedByPda(assetId: string, playerPDA?: string | null) {
-  const row = await NftColumns.get(assetId)
-  if (!row) throw new Error('Unknown assetId')
+  let row = await NftColumns.get(assetId)
+  if (!row) {
+    // Soft-recover: try to seed the row from chain so XP grants don't fail on first touch
+    try {
+      const character = await CharacterService.getCharacter(assetId)
+      if (character) {
+        await NftColumns.upsertMergeMaxFromStats(assetId, playerPDA || null, character.characterStats)
+        row = await NftColumns.get(assetId)
+      }
+    } catch {}
+  }
+  if (!row) {
+    // As a last resort, allow if playerPDA is provided (server-to-server) but warn
+    if (playerPDA) {
+      console.warn('[XP] Proceeding without nfts row for asset, playerPDA provided:', assetId, playerPDA)
+      return
+    }
+    throw new Error('Unknown assetId')
+  }
   if (playerPDA && row.player_pda && row.player_pda !== playerPDA) {
     throw new Error('Asset ownership mismatch')
   }

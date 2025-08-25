@@ -20,6 +20,15 @@ export const supabase = createClient(
   }
 );
 
+// Log DB hosts for visibility
+try {
+  const supaHost = new URL(process.env.SUPABASE_URL || '').host
+  const dbUrl = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || ''
+  const dbHost = (() => { try { return new URL(dbUrl).host } catch { return dbUrl.slice(0, 32) } })()
+  // eslint-disable-next-line no-console
+  console.log(`[DB] Supabase REST host=${supaHost} PG host=${dbHost} (fallback allowed=${process.env.ALLOW_DATABASE_URL_FALLBACK === 'true'})`)
+} catch {}
+
 // Test connection function
 export async function testDatabaseConnection(): Promise<boolean> {
   try {

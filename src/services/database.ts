@@ -355,7 +355,12 @@ export interface NftColumnsRow {
 
 export class NftColumns {
   private static getPgConn(): string | null {
-    return process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || null
+    // Force REST path unless explicitly disabled
+    if (process.env.FORCE_SUPABASE_REST !== 'false') return null
+    const supa = process.env.SUPABASE_DB_URL || null
+    if (supa) return supa
+    if (process.env.ALLOW_DATABASE_URL_FALLBACK === 'true') return process.env.DATABASE_URL || null
+    return null
   }
   
   private static needsSsl(conn: string): boolean {
