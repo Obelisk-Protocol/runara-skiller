@@ -62,7 +62,6 @@ type XpActionKey = keyof typeof XP_ACTION_RULES
 const CreateCharacterSchema = z.object({
   playerPDA: z.string(),
   characterName: z.string().min(1).max(50),
-  characterClass: z.string().optional().default('Adventurer'),
   slot: z.number().int().min(1).max(5).optional()
 });
 
@@ -70,18 +69,9 @@ const UpdateCNFTMetadataSchema = z.object({
   assetId: z.string(),
   characterStats: z.object({
     name: z.string(),
-    level: z.number(),
     combatLevel: z.number(),
     totalLevel: z.number(),
-    characterClass: z.string(),
     version: z.string(),
-    stats: z.object({
-      str: z.number(),
-      agi: z.number(),
-      int: z.number(),
-      vit: z.number(),
-      luk: z.number()
-    }),
     experience: z.number(),
     skills: z.object({
       attack: z.object({ level: z.number(), experience: z.number() }),
@@ -92,7 +82,15 @@ const UpdateCNFTMetadataSchema = z.object({
       vitality: z.object({ level: z.number(), experience: z.number() }),
       crafting: z.object({ level: z.number(), experience: z.number() }),
       luck: z.object({ level: z.number(), experience: z.number() }),
-      gathering: z.object({ level: z.number(), experience: z.number() })
+      mining: z.object({ level: z.number(), experience: z.number() }),
+      woodcutting: z.object({ level: z.number(), experience: z.number() }),
+      fishing: z.object({ level: z.number(), experience: z.number() }),
+      farming: z.object({ level: z.number(), experience: z.number() }),
+      hunting: z.object({ level: z.number(), experience: z.number() }),
+      smithing: z.object({ level: z.number(), experience: z.number() }),
+      cooking: z.object({ level: z.number(), experience: z.number() }),
+      alchemy: z.object({ level: z.number(), experience: z.number() }),
+      construction: z.object({ level: z.number(), experience: z.number() })
     }),
     skillExperience: z.object({
       attack: z.number(),
@@ -103,13 +101,15 @@ const UpdateCNFTMetadataSchema = z.object({
       vitality: z.number(),
       crafting: z.number(),
       luck: z.number(),
-      gathering: z.number()
-    }),
-    achievements: z.array(z.string()),
-    equipment: z.object({
-      weapon: z.string(),
-      armor: z.string(),
-      accessory: z.string()
+      mining: z.number(),
+      woodcutting: z.number(),
+      fishing: z.number(),
+      farming: z.number(),
+      hunting: z.number(),
+      smithing: z.number(),
+      cooking: z.number(),
+      alchemy: z.number(),
+      construction: z.number()
     })
   }),
   playerPDA: z.string().optional()
@@ -132,13 +132,31 @@ const AssignSlotAfterDepositSchema = z.object({
 
 const TrainSkillSchema = z.object({
   assetId: z.string(),
-  skillName: z.enum(['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'gathering']),
+  skillName: z.enum([
+    // Combat Skills
+    'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
+    // Gathering Skills
+    'mining', 'woodcutting', 'fishing', 'farming', 'hunting',
+    // Crafting Skills
+    'smithing', 'crafting', 'cooking', 'alchemy', 'construction',
+    // Unique Skills
+    'luck'
+  ]),
   playerPDA: z.string().optional()
 });
 
 const AddSkillXpSchema = z.object({
   assetId: z.string(),
-  skillName: z.enum(['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'gathering']),
+  skillName: z.enum([
+    // Combat Skills
+    'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
+    // Gathering Skills
+    'mining', 'woodcutting', 'fishing', 'farming', 'hunting',
+    // Crafting Skills
+    'smithing', 'crafting', 'cooking', 'alchemy', 'construction',
+    // Unique Skills
+    'luck'
+  ]),
   xpGain: z.number().min(1),
   playerPDA: z.string().optional(),
   source: z.string().optional(),
@@ -212,11 +230,11 @@ const LevelUpStatSchema = z.object({
 // POST /api/characters/create
 router.post('/create', async (req: any, res: any) => {
   try {
-    const { playerPDA, characterName, characterClass, slot } = CreateCharacterSchema.parse(req.body);
+    const { playerPDA, characterName, slot } = CreateCharacterSchema.parse(req.body);
     
-    console.log('🎯 Creating character:', { playerPDA, characterName, characterClass });
+    console.log('🎯 Creating character:', { playerPDA, characterName });
     
-    const result = await createCharacterCNFT(playerPDA, characterName, characterClass);
+    const result = await createCharacterCNFT(playerPDA, characterName);
     
     if (result.success) {
       // Try to resolve assetId immediately if missing using Helius (fast) or RPC log heuristic
@@ -254,7 +272,7 @@ router.post('/create', async (req: any, res: any) => {
       if (resolvedId) {
         // Seed authoritative DB row so UI can read from DB immediately
         try {
-          const seedStats = generateDefaultCharacterStats(characterName, characterClass || 'Adventurer')
+          const seedStats = generateDefaultCharacterStats(characterName)
           await NftColumns.upsertMergeMaxFromStats(resolvedId, playerPDA, seedStats, null, (result as any)?.signature || null)
         } catch (seedErr) {
           console.warn('⚠️ Failed to seed nfts row:', seedErr)
@@ -335,7 +353,7 @@ router.post('/create', async (req: any, res: any) => {
             }
             // Seed DB row too
             try {
-              const seedStats = generateDefaultCharacterStats(characterName, characterClass || 'Adventurer')
+              const seedStats = generateDefaultCharacterStats(characterName)
               await NftColumns.upsertMergeMaxFromStats(resolved, playerPDA, seedStats, null, (result as any)?.signature || null)
             } catch (seedErr) {
               console.warn('⚠️ Background seed nfts row failed:', seedErr)
@@ -885,34 +903,7 @@ router.get('/xp-actions/list', async (_req: any, res: any) => {
   res.json({ success: true, actions: XP_ACTION_RULES })
 })
 
-// POST /api/characters/level-up-stat
-router.post('/level-up-stat', async (req: any, res: any) => {
-  try {
-    const { assetId, statName, playerPDA } = LevelUpStatSchema.parse(req.body);
-    
-    console.log(`💪 Leveling up ${statName} for character: ${assetId}`);
-    
-    const result = await CharacterService.levelUpStat(assetId, statName, playerPDA);
-    
-    if (result.success) {
-      res.json({
-        success: true,
-        character: result.character,
-        message: `Successfully leveled up ${statName}!`
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: result.error || 'Failed to level up stat'
-      });
-    }
-  } catch (error) {
-    console.error('❌ Level up stat error:', error);
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Invalid request'
-    });
-  }
-});
+// POST /api/characters/level-up-stat - DEPRECATED (stats system removed)
+// Use skill training instead: POST /api/skill-training/train
 
 export default router;

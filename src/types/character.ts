@@ -7,46 +7,55 @@ export interface SkillData {
 
 export interface CharacterStats {
   name: string;
-  level: number;
   combatLevel: number;
   totalLevel: number;
-  characterClass: string;
   version: string;
-  stats: {
-    str: number;
-    agi: number;
-    int: number;
-    vit: number;
-    luk: number;
-  };
   experience: number;
   skills: {
+    // Combat Skills
     attack: SkillData;
     strength: SkillData;
     defense: SkillData;
     magic: SkillData;
     projectiles: SkillData;
     vitality: SkillData;
+    // Gathering Skills
+    mining: SkillData;
+    woodcutting: SkillData;
+    fishing: SkillData;
+    farming: SkillData;
+    hunting: SkillData;
+    // Crafting Skills
+    smithing: SkillData;
     crafting: SkillData;
+    cooking: SkillData;
+    alchemy: SkillData;
+    construction: SkillData;
+    // Unique Skills
     luck: SkillData;
-    gathering: SkillData;
   };
   skillExperience: {
+    // Combat Skills
     attack: number;
     strength: number;
     defense: number;
     magic: number;
     projectiles: number;
     vitality: number;
+    // Gathering Skills
+    mining: number;
+    woodcutting: number;
+    fishing: number;
+    farming: number;
+    hunting: number;
+    // Crafting Skills
+    smithing: number;
     crafting: number;
+    cooking: number;
+    alchemy: number;
+    construction: number;
+    // Unique Skills
     luck: number;
-    gathering: number;
-  };
-  achievements: string[];
-  equipment: {
-    weapon: string;
-    armor: string;
-    accessory: string;
   };
 }
 

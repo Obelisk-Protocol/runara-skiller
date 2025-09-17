@@ -11,6 +11,7 @@ import { NftColumns } from './services/database';
 // Import routes
 import characterRoutes from './routes/characters';
 import skillRoutes from './routes/skills';
+import skillTrainingRoutes from './routes/skill-training';
 import cnftRoutes from './routes/cnft';
 import healthRoutes from './routes/health';
 import metadataRoutes from './routes/metadata';
@@ -39,6 +40,7 @@ app.use('/health', healthRoutes);
 // API routes
 app.use('/api/characters', characterRoutes);
 app.use('/api/skills', skillRoutes);
+app.use('/api/skill-training', skillTrainingRoutes);
 app.use('/api/cnft', cnftRoutes);
 // Serve metadata at both legacy and new paths to match old APIs
 app.use('/api/metadata', metadataRoutes);

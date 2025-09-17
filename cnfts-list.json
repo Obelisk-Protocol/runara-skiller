@@ -1,0 +1,1982 @@
+[
+  {
+    "interface": "V1_NFT",
+    "id": "J8D2rx5XKqyYiqPfjMx3DUSLvVXLkL4Kn8nnH3HthwHz",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/rnRQxcm4wLOeZIKpj9tVyYqXDuJYS0JhyakjxHnwtY0",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "Gorf (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+        "external_url": "https://obeliskparadox.com"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "7Fk8VwPQqjvcxmUSghxmn2etBK6X7CPv5QKnRn4coAXE",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "9a4xpJUx4mJGnjH3bYYEWZS3EYfwSU5kZxMRySm3NUbr",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 15,
+      "leaf_id": 5
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": true,
+      "delegate": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+      "ownership_model": "single",
+      "owner": "EhgDg1dAABQZa7nEWcEWnHX8wTYwVp7CRDyPeUXUfoF8"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "Hr2D7TD5PcngoEqgmabonwiJ2rUeJXXxtLDUVWbGCtCa",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/mThFIFPxxZ3MhvhWTW0U_UoIU929bJFcqVJnXtsdpCM",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "Belac (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+        "external_url": "https://obeliskparadox.com"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "4cZU7tUYybVZ4DURZ6fjtMcMeBbD1gtoRB8MMVpU52fR",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "927mq7SgSWSMamJmMxjaNayLLmrhT1vCX6RftRivapNZ",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 42,
+      "leaf_id": 14
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": true,
+      "delegate": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+      "ownership_model": "single",
+      "owner": "7SbhSJkR9EDJqZ7V3NJVSsXq6y23jLQ94zdStRaoaTAj"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "FfeBH3DcDWGmCNkca4X5y4AjBBFK8b5cKiAdDGUdTTv4",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/Ar-us_q36cZrHm_-EVmEccZXnhR8N1WqBHoFYCcVK08",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "rogue (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+        "external_url": "https://obeliskparadox.com"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "7QZEXTbTA547fMi2chJNGFkaPEWC66LmohXZ3w7cR1gn",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "HeYxV9ow5t4Qe5X5GFozLeioNML5mFijfNWXjaVS1Cgt",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 23,
+      "leaf_id": 11
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": true,
+      "delegate": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+      "ownership_model": "single",
+      "owner": "5R1fB1mDrcf1QcvRiKHTWdws8YCcPDre5pDJkbuAFHvH"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "EaiqsLNLwXZpT2KX9dZLd9zNQSebAxGqNY9sTeBq6emo",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/wEzATvsiNJWX0Qw3gcYjc-8U3S7BVCU-EHZLATSwUG0",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "zei (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "external_url": "https://obeliskparadox.com",
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "3x9M4EenjpCY8gQt5ruBciPUSpi15Uw1Z5TUah5Uxg44",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "DQmFL813fJxG8iJFrDdcm6b445iSKrPivQUBZQ8PqS1X",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 13,
+      "leaf_id": 3
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": false,
+      "delegate": null,
+      "ownership_model": "single",
+      "owner": "4nJ6GFbV8itVboUTbMAcRJ9f1QNoB8bVjpQ5iWYcwsTj"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "DL5j3dd8PWWh8b5vDaeM11fjvSN5eJD5K8o59qAzWzqQ",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/s6t3T60Tlcag2tVAcXjHrTFqxwPN652SEJJ8d7eskQU",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "Fg (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+        "external_url": "https://obeliskparadox.com"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "shf46gYZoskjUtyFvWmAvL111ggDrFLBR6o8JmQRiiP",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "2iH7RZXxzHDHSMhQ6ykPQ8vVLqamUkkZZsTo8aKNb9Pf",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 25,
+      "leaf_id": 12
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": true,
+      "delegate": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+      "ownership_model": "single",
+      "owner": "GFmwhBobsPhu7uRhzsLF2Ja2UNogMqmbAu4L5nd12DGZ"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "D38B1FkaWoXdEW5cWZuFHnHCfVJw1eWg9bY86P5FTmBX",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/ttiNae2RpolW5whCLkNzjuf8uVqoO0DPpCKMWW7smg8",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "Player (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "external_url": "https://obeliskparadox.com",
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "6Sbbptiajgy6UcsfqrispH548pZmo27DzQCEdxFfMeDc",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "4tNf9vd8NkZLu4HFjtnuwSCqvQLtSqjmozqhPox1m9ee",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 19,
+      "leaf_id": 7
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": false,
+      "delegate": null,
+      "ownership_model": "single",
+      "owner": "C5RgAvSxDgri1dh9ZUaKKyVakwszoMePVanD22rA6JVQ"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "C5r44XeWuiJFixWk92SLp1zwUae2rH84vCjJ51f4BtqF",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/up2xmmB-pkG3IGuAZSnLAd4HKCbVLD39FT7mxOhasd4",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "whit3knight (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "external_url": "https://obeliskparadox.com",
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "2teksf3W4KbnuznUs9u6a2x7NgA5UFy9BdF1Mh4pD242",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "6x34G4vFyJGu1r6EsU93U4Euy4FEkNKCSLU5nYpYFB7e",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 21,
+      "leaf_id": 9
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": true,
+      "delegate": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+      "ownership_model": "single",
+      "owner": "B7RKETP28TgY2ST3eAfdvnW46WKqx98fV5jkUsQxZBGY"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "AVwnQQFj6mXoUaipb5ZUeu5vQE8RUaTkRKNu4XiBp4CP",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/TSEEtP1FrDRVvbtgVUpazdSIcubQ1JDk4Gm6rz1G14s",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "rogue (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "external_url": "https://obeliskparadox.com",
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "6f8qGcLj22pE4oLXv59MsgfwaUQPEtDWd5aFBi47Bb7r",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "Hdbxn9LRq2QRBF7ZKeCGDpLbsKgFsKeTCXShtYaASMXn",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 22,
+      "leaf_id": 10
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": true,
+      "delegate": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+      "ownership_model": "single",
+      "owner": "5R1fB1mDrcf1QcvRiKHTWdws8YCcPDre5pDJkbuAFHvH"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "AT9DXUmHg5jVaB6GjKuyFseD7zhswRdX8z44xUYv5rqw",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/ZIELt2rQKmaTkKni2BbRG1E9Mz5W87xYYEGXVkWrZnk",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/svg+xml"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "1.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "14",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "6",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 14 total skill levels",
+        "name": "Belacosaur (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+        "external_url": "https://obeliskparadox.com"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "7J66ncZ7KVBNsk6QFuijc9s5C1QwRyJPrsWrvrrh7gMC",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "EzWdDo2XnA4269xktpxom79eC85uHpD4w6u877j3wxGD",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 41,
+      "leaf_id": 0
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": false,
+      "delegate": null,
+      "ownership_model": "single",
+      "owner": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "8yyBUr927h8UoNQW5kcwfv4g9yx44WFK9AUi3WL7cNax",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/RA9nsfeOIg21O8gfElSUD97975SLttEUkfs3IF3trgQ",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "zei (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "external_url": "https://obeliskparadox.com",
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "BecLp3bm7x8rzcq72VeUUfejj8EZBAi7RCeguZ3KKJiL",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "8Ds3tGXPC8ce5TquNLYA1uBL6Lng4P8GJHH3ALGEyQCT",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 9,
+      "leaf_id": 1
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": false,
+      "delegate": null,
+      "ownership_model": "single",
+      "owner": "2aSJBUGpWWUZty3dafov1Z8Edw3YPA6Z1e2X3aqXu27i"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "817Lk3yvRFg9uT6cjTRQbDS76DGiJAHrZ46Wkg6CTNM7",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/1tctekRGAtpYITo0Srm_fHEOaTI9f27y6OBncg_A8L8",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "Fuegod (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "external_url": "https://obeliskparadox.com",
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "Azxk4Lc6TMf2MfhU9Q3facQ7Pup2diP2sXqbGf3FXjg5",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "9iAqkrJwgcmKuahYg7uSqyU9wnS5qVpXodaED9dCzr4J",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 10,
+      "leaf_id": 2
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": false,
+      "delegate": null,
+      "ownership_model": "single",
+      "owner": "2aSJBUGpWWUZty3dafov1Z8Edw3YPA6Z1e2X3aqXu27i"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "7bcV5FXB9rgCs3MJWL5Z49EhBno1qyDxvt4vwqfB1Fm6",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/rVoumZsQ8R1SP0D3Mxq5vJG-WwyFThBH5M92FUVqVsg",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "zei (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "external_url": "https://obeliskparadox.com",
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "44jdSdakPPjJA2rNebKEenbwdLgnUmaWWUZRBWJXirdj",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "jC4CUn9vAmS91svi8FW4E2iGJ9Uhg6w21XCEqM5yALs",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 14,
+      "leaf_id": 4
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": true,
+      "delegate": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+      "ownership_model": "single",
+      "owner": "B7QGLFDFxcPoqp3hZXathKzFC4LQumnfoUqGMDCbTT6F"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "65enfe6s2jcrtcL3AJhSpqsNmdmqQTaKq3EHS8isMVe6",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/S8c8K3G2XYEAJZ-K6oTG-YdT6WUJ6DQH3ffjfQDWv6I",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "Your Mamma! (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+        "external_url": "https://obeliskparadox.com"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "DLfMZQqXG4MccGwgbNs32Pryj16Wjo4h9yK5RuQ4XxyW",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "FLDpb75Lcery2n3R4EZhJL15V8oqRooqiKkejJrvVoEe",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 20,
+      "leaf_id": 8
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": true,
+      "delegate": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+      "ownership_model": "single",
+      "owner": "5b5BKjCiDnh6nGPLbJeaJNpST75aVGuFKmAZTEY6Nyra"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "5ykepWErCKPzwBBpshP22CcPS7zpsGC1Mwmj82SPuYhq",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/W32zyJkK0pmy8aPVTSm61732_hC4S60uXrpoY_2e7-4",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "Player (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "external_url": "https://obeliskparadox.com",
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "B5heFQFnwtVYdxc9JNguvp2nHKRXEWHxD5YegYnQ9rEk",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "GBcwM2ZU6tJspCj8f31jmBHVVF9bfPxBbmeu1znVxCXM",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 17,
+      "leaf_id": 6
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": false,
+      "delegate": null,
+      "ownership_model": "single",
+      "owner": "C5RgAvSxDgri1dh9ZUaKKyVakwszoMePVanD22rA6JVQ"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  },
+  {
+    "interface": "V1_NFT",
+    "id": "4Jd4RxmXeyn6ifQCKFX49qykykisj5jmfhWYk7VWyYA8",
+    "content": {
+      "$schema": "https://schema.metaplex.com/nft1.0.json",
+      "json_uri": "https://arweave.net/LdSdG9YG3F7GxfZy0JqCwMzImn97hRZnBbFCVDjA5m8",
+      "files": [
+        {
+          "uri": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "cdn_uri": "https://cdn.helius-rpc.com/cdn-cgi/image//https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+          "mime": "image/png"
+        }
+      ],
+      "metadata": {
+        "attributes": [
+          {
+            "value": "2.0.0",
+            "trait_type": "Version"
+          },
+          {
+            "value": "1",
+            "trait_type": "Level"
+          },
+          {
+            "value": "3",
+            "trait_type": "Combat Level"
+          },
+          {
+            "value": "9",
+            "trait_type": "Total Level"
+          },
+          {
+            "value": "1",
+            "trait_type": "Att"
+          },
+          {
+            "value": "1",
+            "trait_type": "Str"
+          },
+          {
+            "value": "1",
+            "trait_type": "Def"
+          },
+          {
+            "value": "1",
+            "trait_type": "Mag"
+          },
+          {
+            "value": "1",
+            "trait_type": "Pro"
+          },
+          {
+            "value": "1",
+            "trait_type": "Vit"
+          },
+          {
+            "value": "1",
+            "trait_type": "Cra"
+          },
+          {
+            "value": "1",
+            "trait_type": "Luc"
+          },
+          {
+            "value": "1",
+            "trait_type": "Gat"
+          }
+        ],
+        "description": "Level 1 Adventurer with 9 total skill levels",
+        "name": "Greg (Level 1, Combat 3)",
+        "symbol": "PLAYER",
+        "token_standard": "NonFungible"
+      },
+      "links": {
+        "image": "https://obelisk-paradox.vercel.app/images/characternft/charsillo.png",
+        "external_url": "https://obeliskparadox.com"
+      }
+    },
+    "authorities": [
+      {
+        "address": "6GMsCfY2s7kxwLb7ncRmJkcY6q5tppRpcZ8TccYPSZuZ",
+        "scopes": [
+          "full"
+        ]
+      }
+    ],
+    "compression": {
+      "eligible": false,
+      "compressed": true,
+      "data_hash": "5M9zVEYaYY7HUiia2c1gkk33iHZPgGY8ThamW2eYsb3a",
+      "creator_hash": "Bd4mdjwHEorW6Q3wT7WLUBitAo75o5kedYL7eSHU8Ng9",
+      "asset_hash": "CjeNqFvsTXFuKN1mNpKEVMgBkKPzXH7PixPdxAuVKycb",
+      "tree": "DHqYiK98tcWW7Kfxubzhm4vgcV6sbhVXThWMkRnnyLK8",
+      "seq": 40,
+      "leaf_id": 13
+    },
+    "grouping": [
+      {
+        "group_key": "collection",
+        "group_value": "DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE"
+      }
+    ],
+    "royalty": {
+      "royalty_model": "creators",
+      "target": null,
+      "percent": 0.05,
+      "basis_points": 500,
+      "primary_sale_happened": false,
+      "locked": false
+    },
+    "creators": [
+      {
+        "address": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV",
+        "share": 100,
+        "verified": true
+      }
+    ],
+    "ownership": {
+      "frozen": false,
+      "delegated": false,
+      "delegate": null,
+      "ownership_model": "single",
+      "owner": "KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV"
+    },
+    "supply": {
+      "print_max_supply": 0,
+      "print_current_supply": 0,
+      "edition_nonce": null
+    },
+    "mutable": true,
+    "burnt": false
+  }
+]

@@ -233,6 +233,111 @@ export class SkillDatabase {
       return [];
     }
   }
+
+  // Action-based skill training methods
+  static async getActionSkillMappings(): Promise<Array<{action: string, skill: string, description: string}>> {
+    try {
+      const { data, error } = await supabase
+        .from('action_skills')
+        .select('action, skill, description')
+        .order('skill, action');
+
+      if (error) {
+        console.error('❌ Error fetching action-skill mappings:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('❌ Database error fetching action-skill mappings:', error);
+      return [];
+    }
+  }
+
+  static async getSkillForAction(action: string): Promise<{skill: string, description: string} | null> {
+    try {
+      const { data, error } = await supabase
+        .from('action_skills')
+        .select('skill, description')
+        .eq('action', action)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null; // Action not found
+        }
+        console.error('❌ Error fetching skill for action:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('❌ Database error fetching skill for action:', error);
+      return null;
+    }
+  }
+
+  static async logSkillTraining(params: {
+    assetId: string;
+    action: string;
+    skill: string;
+    expGained: number;
+    playerPDA?: string;
+    sessionId?: string;
+    gameMode?: string;
+    additionalData?: any;
+  }): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('skill_training_logs')
+        .insert({
+          asset_id: params.assetId,
+          action: params.action,
+          skill: params.skill,
+          exp_gained: params.expGained,
+          player_pda: params.playerPDA,
+          session_id: params.sessionId,
+          game_mode: params.gameMode,
+          additional_data: params.additionalData
+        });
+
+      if (error) {
+        console.error('❌ Error logging skill training:', error);
+        throw error;
+      }
+    } catch (error) {
+      console.error('❌ Database error logging skill training:', error);
+      throw error;
+    }
+  }
+
+  static async getSkillTrainingHistory(assetId: string, options: {limit: number, offset: number}): Promise<Array<{
+    id: number;
+    action: string;
+    skill: string;
+    exp_gained: number;
+    created_at: string;
+    additional_data: any;
+  }>> {
+    try {
+      const { data, error } = await supabase
+        .from('skill_training_logs')
+        .select('id, action, skill, exp_gained, created_at, additional_data')
+        .eq('asset_id', assetId)
+        .order('created_at', { ascending: false })
+        .range(options.offset, options.offset + options.limit - 1);
+
+      if (error) {
+        console.error('❌ Error fetching skill training history:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('❌ Database error fetching skill training history:', error);
+      return [];
+    }
+  }
 }
 
 // Metadata storage (in-memory for now, can be moved to database later)
@@ -304,7 +409,7 @@ export class NftState {
         asset_id: assetId,
         player_pda: playerPda,
         name: stats.name,
-        level: stats.level,
+        level: 1, // Default level since we removed the main character level
         combat_level: stats.combatLevel,
         total_level: stats.totalLevel,
         version: stats.version,
@@ -346,7 +451,16 @@ export interface NftColumnsRow {
   vit: number
   cra: number
   luc: number
-  gat: number
+  // New 18-skill system
+  mining: number
+  woodcutting: number
+  fishing: number
+  farming: number
+  hunting: number
+  smithing: number
+  cooking: number
+  alchemy: number
+  construction: number
   last_arweave_uri: string | null
   last_update_sig: string | null
   state_version: number
@@ -406,7 +520,6 @@ export class NftColumns {
   static statsToColumns(stats: CharacterStats) {
     return {
       name: stats.name,
-      level: stats.level,
       combat_level: stats.combatLevel,
       total_level: stats.totalLevel,
       version: stats.version,
@@ -418,21 +531,26 @@ export class NftColumns {
       vit: stats.skills.vitality?.level ?? 1,
       cra: stats.skills.crafting?.level ?? 1,
       luc: stats.skills.luck?.level ?? 1,
-      gat: stats.skills.gathering?.level ?? 1,
+      mining: stats.skills.mining?.level ?? 1,
+      woodcutting: stats.skills.woodcutting?.level ?? 1,
+      fishing: stats.skills.fishing?.level ?? 1,
+      farming: stats.skills.farming?.level ?? 1,
+      hunting: stats.skills.hunting?.level ?? 1,
+      smithing: stats.skills.smithing?.level ?? 1,
+      cooking: stats.skills.cooking?.level ?? 1,
+      alchemy: stats.skills.alchemy?.level ?? 1,
+      construction: stats.skills.construction?.level ?? 1,
     }
   }
 
   static columnsToStats(row: NftColumnsRow): CharacterStats {
-    const { name, level, combat_level, total_level, version } = row
+    const { name, combat_level, total_level, version } = row
     return {
       name,
-      level,
       combatLevel: combat_level,
       totalLevel: total_level,
       version,
-      characterClass: 'Adventurer',
-      stats: { str: 10, agi: 10, int: 10, vit: 10, luk: 10 },
-      experience: level * 100,
+      experience: 100, // Default experience
       skills: {
         attack: { level: row.att, experience: row.att * 100 },
         strength: { level: row.str, experience: row.str * 100 },
@@ -442,22 +560,35 @@ export class NftColumns {
         vitality: { level: row.vit, experience: row.vit * 100 },
         crafting: { level: row.cra, experience: row.cra * 100 },
         luck: { level: row.luc, experience: row.luc * 100 },
-        gathering: { level: row.gat, experience: row.gat * 100 },
+        mining: { level: row.mining || 1, experience: (row.mining || 1) * 100 },
+        woodcutting: { level: row.woodcutting || 1, experience: (row.woodcutting || 1) * 100 },
+        fishing: { level: row.fishing || 1, experience: (row.fishing || 1) * 100 },
+        farming: { level: row.farming || 1, experience: (row.farming || 1) * 100 },
+        hunting: { level: row.hunting || 1, experience: (row.hunting || 1) * 100 },
+        smithing: { level: row.smithing || 1, experience: (row.smithing || 1) * 100 },
+        cooking: { level: row.cooking || 1, experience: (row.cooking || 1) * 100 },
+        alchemy: { level: row.alchemy || 1, experience: (row.alchemy || 1) * 100 },
+        construction: { level: row.construction || 1, experience: (row.construction || 1) * 100 },
       },
       skillExperience: {
         attack: 0, strength: 0, defense: 0, magic: 0,
-        projectiles: 0, vitality: 0, crafting: 0, luck: 0, gathering: 0,
+        projectiles: 0, vitality: 0, crafting: 0, luck: 0,
+        mining: 0, woodcutting: 0, fishing: 0, farming: 0, hunting: 0,
+        smithing: 0, cooking: 0, alchemy: 0, construction: 0,
       },
-      achievements: ['First Character'],
-      equipment: { weapon: 'None', armor: 'None', accessory: 'None' }
     }
   }
 
   static computeTotals(row: Partial<NftColumnsRow>): { total_level: number; combat_level: number } {
     const att = row.att ?? 1, str = row.str ?? 1, def = row.def ?? 1,
       mag = row.mag ?? 1, pro = row.pro ?? 1, vit = row.vit ?? 1,
-      cra = row.cra ?? 1, luc = row.luc ?? 1, gat = row.gat ?? 1
-    const total = att + str + def + mag + pro + vit + cra + luc + gat
+      cra = row.cra ?? 1, luc = row.luc ?? 1,
+      mining = row.mining ?? 1, woodcutting = row.woodcutting ?? 1, fishing = row.fishing ?? 1,
+      farming = row.farming ?? 1, hunting = row.hunting ?? 1, smithing = row.smithing ?? 1,
+      cooking = row.cooking ?? 1, alchemy = row.alchemy ?? 1, construction = row.construction ?? 1
+    const total = att + str + def + mag + pro + vit + cra + luc + 
+                  mining + woodcutting + fishing + farming + hunting + 
+                  smithing + cooking + alchemy + construction
     const melee = (att + str + def) / 3
     const magicStyle = (mag * 1.5 + def) / 2.5
     const projectileStyle = (pro + def) / 2
@@ -471,7 +602,7 @@ export class NftColumns {
       ...existing,
       ...incoming,
     }
-    const skills: (keyof NftColumnsRow)[] = ['att','str','def','mag','pro','vit','cra','luc','gat']
+    const skills: (keyof NftColumnsRow)[] = ['att','str','def','mag','pro','vit','cra','luc','mining','woodcutting','fishing','farming','hunting','smithing','cooking','alchemy','construction']
     for (const k of skills) {
       const e = (existing as any)?.[k]
       const i = (incoming as any)?.[k]
@@ -508,17 +639,16 @@ export class NftColumns {
         await client.connect()
         const sql = `
           insert into nfts (
-            asset_id, player_pda, name, level, combat_level, total_level, version,
-            att, str, def, mag, pro, vit, cra, luc, gat,
+            asset_id, player_pda, name, combat_level, total_level, version,
+            att, str, def, mag, pro, vit, cra, luc, mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction,
             last_arweave_uri, last_update_sig, updated_at
           ) values (
-            $1,$2,$3,$4,$5,$6,$7,
-            $8,$9,$10,$11,$12,$13,$14,$15,$16,
-            $17,$18,$19
+            $1,$2,$3,$4,$5,$6,
+            $7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
+            $24,$25,$26
           ) on conflict (asset_id) do update set
             player_pda = excluded.player_pda,
             name = excluded.name,
-            level = excluded.level,
             combat_level = excluded.combat_level,
             total_level = excluded.total_level,
             version = excluded.version,
@@ -530,7 +660,7 @@ export class NftColumns {
             vit = greatest(nfts.vit, excluded.vit),
             cra = greatest(nfts.cra, excluded.cra),
             luc = greatest(nfts.luc, excluded.luc),
-            gat = greatest(nfts.gat, excluded.gat),
+            mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction = greatest(nfts.mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction, excluded.mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction),
             last_arweave_uri = coalesce(excluded.last_arweave_uri, nfts.last_arweave_uri),
             last_update_sig = coalesce(excluded.last_update_sig, nfts.last_update_sig),
             updated_at = excluded.updated_at,
@@ -540,7 +670,7 @@ export class NftColumns {
         const values = [
           assetId, playerPda, merged.name, (merged as any).level, totals.combat_level, totals.total_level, merged.version,
           (merged as any).att, (merged as any).str, (merged as any).def, (merged as any).mag, (merged as any).pro,
-          (merged as any).vit, (merged as any).cra, (merged as any).luc, (merged as any).gat,
+          (merged as any).vit, (merged as any).cra, (merged as any).luc, (merged as any).mining, (merged as any).woodcutting, (merged as any).fishing, (merged as any).farming, (merged as any).hunting, (merged as any).smithing, (merged as any).cooking, (merged as any).alchemy, (merged as any).construction,
           row.last_arweave_uri, row.last_update_sig, row.updated_at
         ]
         const { rows } = await client.query(sql, values)
@@ -589,17 +719,16 @@ export class NftColumns {
           const nowIso = new Date().toISOString()
           const sql = `
             insert into nfts (
-              asset_id, player_pda, name, level, combat_level, total_level, version,
-              att, str, def, mag, pro, vit, cra, luc, gat,
+              asset_id, player_pda, name, combat_level, total_level, version,
+              att, str, def, mag, pro, vit, cra, luc, mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction,
               last_arweave_uri, last_update_sig, updated_at
             ) values (
-              $1,$2,$3,$4,$5,$6,$7,
-              $8,$9,$10,$11,$12,$13,$14,$15,$16,
-              $17,$18,$19
+              $1,$2,$3,$4,$5,$6,
+              $7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
+              $24,$25,$26
             ) on conflict (asset_id) do update set
               player_pda = excluded.player_pda,
               name = excluded.name,
-              level = excluded.level,
               combat_level = excluded.combat_level,
               total_level = excluded.total_level,
               version = excluded.version,
@@ -611,7 +740,7 @@ export class NftColumns {
               vit = excluded.vit,
               cra = excluded.cra,
               luc = excluded.luc,
-              gat = excluded.gat,
+              mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction = excluded.mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction,
               last_arweave_uri = excluded.last_arweave_uri,
               last_update_sig = excluded.last_update_sig,
               updated_at = excluded.updated_at,
@@ -619,8 +748,8 @@ export class NftColumns {
             returning *;
           `
           const values = [
-            assetId, playerPda, cols.name, cols.level, totals.combat_level, totals.total_level, cols.version,
-            cols.att, cols.str, cols.def, cols.mag, cols.pro, cols.vit, cols.cra, cols.luc, cols.gat,
+            assetId, playerPda, cols.name, totals.combat_level, totals.total_level, cols.version,
+            cols.att, cols.str, cols.def, cols.mag, cols.pro, cols.vit, cols.cra, cols.luc, cols.mining, cols.woodcutting, cols.fishing, cols.farming, cols.hunting, cols.smithing, cols.cooking, cols.alchemy, cols.construction,
             lastUri ?? null, lastSig ?? null, nowIso
           ]
           const { rows } = await client.query(sql, values)
@@ -664,13 +793,15 @@ export class NftColumns {
 
   static async incrementSkill(
     assetId: string,
-    skill: 'attack' | 'strength' | 'defense' | 'magic' | 'projectiles' | 'vitality' | 'crafting' | 'luck' | 'gathering'
+    skill: 'attack' | 'strength' | 'defense' | 'magic' | 'projectiles' | 'vitality' | 'crafting' | 'luck' | 'mining' | 'woodcutting' | 'fishing' | 'farming' | 'hunting' | 'smithing' | 'cooking' | 'alchemy' | 'construction'
   ): Promise<NftColumnsRow | null> {
     console.log(`🧮 [NftColumns.incrementSkill] assetId=${assetId} skill=${skill}`)
     const existing = await this.get(assetId)
     if (!existing) return null
     const map: Record<string, keyof NftColumnsRow> = {
-      attack: 'att', strength: 'str', defense: 'def', magic: 'mag', projectiles: 'pro', vitality: 'vit', crafting: 'cra', luck: 'luc', gathering: 'gat'
+      attack: 'att', strength: 'str', defense: 'def', magic: 'mag', projectiles: 'pro', vitality: 'vit', crafting: 'cra', luck: 'luc', 
+      mining: 'mining', woodcutting: 'woodcutting', fishing: 'fishing', farming: 'farming', hunting: 'hunting', 
+      smithing: 'smithing', cooking: 'cooking', alchemy: 'alchemy', construction: 'construction'
     }
     const col = map[skill]
     const nextVal = (existing as any)[col] + 1

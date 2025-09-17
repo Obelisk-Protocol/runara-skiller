@@ -1,5 +1,5 @@
 import { CharacterStats, Character } from '../types/character';
-import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT } from './cnft';
+import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT, generateDefaultCharacterStats } from './cnft';
 import { SkillDatabase, NftColumns } from './database';
 
 // Calculate combat level (Attack + Strength + Defense)
@@ -19,14 +19,22 @@ export class CharacterService {
   static async createCharacter(
     playerPDA: string,
     playerId: string,
-    characterName: string,
-    characterClass: string = 'Adventurer'
+    characterName: string
   ): Promise<{ success: boolean; character?: Character; error?: string }> {
     try {
       console.log(`🎯 Creating character "${characterName}" for player ${playerId}`);
       
+      // Validate inputs
+      if (!playerPDA || playerPDA.length < 32) {
+        return { success: false, error: 'Invalid player PDA' };
+      }
+      
+      if (!characterName || characterName.trim().length < 1 || characterName.length > 50) {
+        return { success: false, error: 'Character name must be 1-50 characters' };
+      }
+      
       // Create the cNFT first
-      const cnftResult = await createCharacterCNFT(playerPDA, characterName, characterClass);
+      const cnftResult = await createCharacterCNFT(playerPDA, characterName.trim());
       
       if (!cnftResult.success || !cnftResult.assetId) {
         return {
@@ -35,51 +43,8 @@ export class CharacterService {
         };
       }
       
-      // Generate character stats
-      const characterStats: CharacterStats = {
-        name: characterName,
-        level: 1,
-        combatLevel: 3,
-        totalLevel: 9,
-        characterClass,
-        version: '2.0.0',
-        stats: {
-          str: 10,
-          agi: 10,
-          int: 10,
-          vit: 10,
-          luk: 10
-        },
-        experience: 0,
-        skills: {
-          attack: { level: 1, experience: 0 },
-          strength: { level: 1, experience: 0 },
-          defense: { level: 1, experience: 0 },
-          magic: { level: 1, experience: 0 },
-          projectiles: { level: 1, experience: 0 },
-          vitality: { level: 1, experience: 0 },
-          crafting: { level: 1, experience: 0 },
-          luck: { level: 1, experience: 0 },
-          gathering: { level: 1, experience: 0 }
-        },
-        skillExperience: {
-          attack: 0,
-          strength: 0,
-          defense: 0,
-          magic: 0,
-          projectiles: 0,
-          vitality: 0,
-          crafting: 0,
-          luck: 0,
-          gathering: 0
-        },
-        achievements: ['First Character'],
-        equipment: {
-          weapon: 'None',
-          armor: 'None',
-          accessory: 'None'
-        }
-      };
+      // Generate character stats using the new 18-skill structure
+      const characterStats = generateDefaultCharacterStats(characterName.trim());
       
       // Store initial authoritative NFT row (per-skill columns)
       await NftColumns.upsertMergeMaxFromStats(cnftResult.assetId, playerPDA, characterStats)
@@ -171,7 +136,15 @@ export class CharacterService {
             vitality: dbRow.vit,
             crafting: dbRow.cra,
             luck: dbRow.luc,
-            gathering: dbRow.gat,
+            mining: dbRow.mining,
+            woodcutting: dbRow.woodcutting,
+            fishing: dbRow.fishing,
+            farming: dbRow.farming,
+            hunting: dbRow.hunting,
+            smithing: dbRow.smithing,
+            cooking: dbRow.cooking,
+            alchemy: dbRow.alchemy,
+            construction: dbRow.construction,
           }
         : null;
 
@@ -238,10 +211,11 @@ export class CharacterService {
     }
   }
   
-  // Level up a primary stat
+  // Level up a primary stat - DEPRECATED (stats system removed)
+  /*
   static async levelUpStat(
     assetId: string,
-    statName: keyof CharacterStats['stats'],
+    statName: any, // Changed from keyof CharacterStats['stats'] since stats was removed
     playerPDA?: string
   ): Promise<{ success: boolean; character?: Character; error?: string }> {
     try {
@@ -308,6 +282,7 @@ export class CharacterService {
       };
     }
   }
+  */
   
   // Get characters by player ID
   static async getPlayerCharacters(playerId: string): Promise<Character[]> {

@@ -1,9 +1,18 @@
 import { Client as PgClient } from 'pg'
 import { supabase } from '../config/database'
 import { NftColumns } from './database'
+import { updateCharacterCNFT } from './cnft'
 import { CharacterStats } from '../types/character'
 
-export type CharacterSkill = 'attack' | 'strength' | 'defense' | 'magic' | 'projectiles' | 'vitality' | 'crafting' | 'luck' | 'gathering'
+export type CharacterSkill = 
+  // Combat Skills
+  | 'attack' | 'strength' | 'defense' | 'magic' | 'projectiles' | 'vitality'
+  // Gathering Skills  
+  | 'mining' | 'woodcutting' | 'fishing' | 'farming' | 'hunting'
+  // Crafting Skills
+  | 'smithing' | 'crafting' | 'cooking' | 'alchemy' | 'construction'
+  // Unique Skills
+  | 'luck'
 
 type XpProgress = {
   level: number
@@ -91,6 +100,28 @@ export async function addSkillXp(
 }> {
   if (!assetId || experienceGain <= 0) {
     throw new Error('Invalid assetId or experienceGain')
+  }
+
+  // Validate skill name
+  const validSkills: CharacterSkill[] = [
+    // Combat Skills
+    'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
+    // Gathering Skills
+    'mining', 'woodcutting', 'fishing', 'farming', 'hunting',
+    // Crafting Skills
+    'smithing', 'crafting', 'cooking', 'alchemy', 'construction',
+    // Unique Skills
+    'luck'
+  ]
+  if (!validSkills.includes(skill)) {
+    throw new Error(`Invalid skill: ${skill}. Must be one of: ${validSkills.join(', ')}`)
+  }
+
+  // Cap experience gain to prevent exploits
+  const maxXpGain = 10000
+  const cappedGain = Math.min(experienceGain, maxXpGain)
+  if (cappedGain !== experienceGain) {
+    console.warn(`⚠️ Capped XP gain from ${experienceGain} to ${cappedGain} for skill ${skill}`)
   }
 
   const pgConn = getPgConn()
@@ -213,7 +244,25 @@ export async function addSkillXp(
       const currentSkillLevel = Number((s as any)[skill]?.level || 1)
       const targetLevel = Math.max(currentSkillLevel, computedLevel)
       s[skill] = { level: targetLevel, experience: levelToXp(targetLevel) }
-      await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, { ...stats, skills: s })
+      const updatedStats = { ...stats, skills: s }
+      
+      // Update database
+      await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, updatedStats)
+      
+      // Update cNFT if skill leveled up
+      if (computedLevel > currentSkillLevel) {
+        try {
+          console.log(`🔄 Updating cNFT for skill level up: ${skill} -> level ${computedLevel}`)
+          const cnftResult = await updateCharacterCNFT(assetId, updatedStats, playerPda || undefined)
+          if (cnftResult.success) {
+            console.log(`✅ cNFT updated successfully for ${skill} level up`)
+          } else {
+            console.warn(`⚠️ Failed to update cNFT: ${cnftResult.error}`)
+          }
+        } catch (cnftError) {
+          console.error(`❌ Error updating cNFT:`, cnftError)
+        }
+      }
     }
   }
   const progress = computeProgress(nextXp)
@@ -251,7 +300,15 @@ export async function getAllSkillXp(assetId: string): Promise<Record<CharacterSk
     vitality: { experience: 0, level: 1 },
     crafting: { experience: 0, level: 1 },
     luck: { experience: 0, level: 1 },
-    gathering: { experience: 0, level: 1 },
+    mining: { experience: 0, level: 1 },
+    woodcutting: { experience: 0, level: 1 },
+    fishing: { experience: 0, level: 1 },
+    farming: { experience: 0, level: 1 },
+    hunting: { experience: 0, level: 1 },
+    smithing: { experience: 0, level: 1 },
+    cooking: { experience: 0, level: 1 },
+    alchemy: { experience: 0, level: 1 },
+    construction: { experience: 0, level: 1 },
   }
   const { data, error } = await supabase
     .from('nft_skill_experience')

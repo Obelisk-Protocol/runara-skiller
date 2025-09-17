@@ -46,50 +46,59 @@ function resolveDefaultCharacterImageUrl(seedName?: string): string {
   return fallback
 }
 
-// Exactly matching your frontend's character generation
-export function generateDefaultCharacterStats(name: string, characterClass: string = 'Adventurer'): CharacterStats {
+// Generate default character stats with 18 skills (no equipment, achievements, stats, or character class)
+export function generateDefaultCharacterStats(name: string): CharacterStats {
   return {
     name,
-    level: 1,
     combatLevel: 3, // Default combat level (Attack + Strength + Defense)
-    totalLevel: 9,  // Default total level (all skills at 1)
-    characterClass,
+    totalLevel: 18, // Default total level (all 18 skills at 1)
     version: '2.0.0',
-    stats: {
-      str: 10,
-      agi: 10,
-      int: 10,
-      vit: 10,
-      luk: 10
-    },
     experience: 0,
     skills: {
+      // Combat Skills
       attack: { level: 1, experience: 0 },
       strength: { level: 1, experience: 0 },
       defense: { level: 1, experience: 0 },
       magic: { level: 1, experience: 0 },
       projectiles: { level: 1, experience: 0 },
       vitality: { level: 1, experience: 0 },
+      // Gathering Skills
+      mining: { level: 1, experience: 0 },
+      woodcutting: { level: 1, experience: 0 },
+      fishing: { level: 1, experience: 0 },
+      farming: { level: 1, experience: 0 },
+      hunting: { level: 1, experience: 0 },
+      // Crafting Skills
+      smithing: { level: 1, experience: 0 },
       crafting: { level: 1, experience: 0 },
-      luck: { level: 1, experience: 0 },
-      gathering: { level: 1, experience: 0 }
+      cooking: { level: 1, experience: 0 },
+      alchemy: { level: 1, experience: 0 },
+      construction: { level: 1, experience: 0 },
+      // Unique Skills
+      luck: { level: 1, experience: 0 }
     },
     skillExperience: {
+      // Combat Skills
       attack: 0,
       strength: 0,
       defense: 0,
       magic: 0,
       projectiles: 0,
       vitality: 0,
+      // Gathering Skills
+      mining: 0,
+      woodcutting: 0,
+      fishing: 0,
+      farming: 0,
+      hunting: 0,
+      // Crafting Skills
+      smithing: 0,
       crafting: 0,
-      luck: 0,
-      gathering: 0
-    },
-    achievements: ['First Character'],
-    equipment: {
-      weapon: 'None',
-      armor: 'None',
-      accessory: 'None'
+      cooking: 0,
+      alchemy: 0,
+      construction: 0,
+      // Unique Skills
+      luck: 0
     }
   };
 }
@@ -170,38 +179,44 @@ async function pollForAssetIdViaDAS(
 // Create character cNFT (exactly matching your frontend logic)
 export async function createCharacterCNFT(
   playerPDA: string,
-  characterName: string,
-  characterClass: string = 'Adventurer'
+  characterName: string
 ): Promise<{ success: boolean; assetId?: string; signature?: string; error?: string }> {
   try {
     console.log('🎯 Creating character cNFT for:', playerPDA);
     
     // Generate character stats
-    const characterStats = generateDefaultCharacterStats(characterName, characterClass);
+    const characterStats = generateDefaultCharacterStats(characterName);
     
     // Build Metaplex JSON and upload to Arweave
     const imageUrl = resolveDefaultCharacterImageUrl(characterName)
     console.log('[IMG] createCharacterCNFT imageUrl', imageUrl)
     const jsonPayload = {
-      name: `${characterName} (Level ${characterStats.level}, Combat ${characterStats.combatLevel})`,
+      name: `${characterName} (Combat ${characterStats.combatLevel})`,
       symbol: 'PLAYER',
-      description: `Level ${characterStats.level} ${characterStats.characterClass} with ${characterStats.totalLevel} total skill levels`,
+      description: `Character with ${characterStats.totalLevel} total skill levels`,
       image: imageUrl,
       external_url: 'https://obeliskparadox.com',
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
-        { trait_type: 'Level', value: characterStats.level.toString() },
         { trait_type: 'Combat Level', value: characterStats.combatLevel.toString() },
         { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
-        { trait_type: 'Att', value: characterStats.skills.attack.level.toString() },
-        { trait_type: 'Str', value: characterStats.skills.strength.level.toString() },
-        { trait_type: 'Def', value: characterStats.skills.defense.level.toString() },
-        { trait_type: 'Mag', value: characterStats.skills.magic.level.toString() },
-        { trait_type: 'Pro', value: characterStats.skills.projectiles.level.toString() },
-        { trait_type: 'Vit', value: characterStats.skills.vitality.level.toString() },
-        { trait_type: 'Cra', value: characterStats.skills.crafting.level.toString() },
-        { trait_type: 'Luc', value: characterStats.skills.luck.level.toString() },
-        { trait_type: 'Gat', value: characterStats.skills.gathering.level.toString() }
+        { trait_type: 'Attack', value: characterStats.skills.attack.level.toString() },
+        { trait_type: 'Strength', value: characterStats.skills.strength.level.toString() },
+        { trait_type: 'Defense', value: characterStats.skills.defense.level.toString() },
+        { trait_type: 'Magic', value: characterStats.skills.magic.level.toString() },
+        { trait_type: 'Projectiles', value: characterStats.skills.projectiles.level.toString() },
+        { trait_type: 'Vitality', value: characterStats.skills.vitality.level.toString() },
+        { trait_type: 'Crafting', value: characterStats.skills.crafting.level.toString() },
+        { trait_type: 'Luck', value: characterStats.skills.luck.level.toString() },
+        { trait_type: 'Mining', value: characterStats.skills.mining.level.toString() },
+        { trait_type: 'Woodcutting', value: characterStats.skills.woodcutting.level.toString() },
+        { trait_type: 'Fishing', value: characterStats.skills.fishing.level.toString() },
+        { trait_type: 'Farming', value: characterStats.skills.farming.level.toString() },
+        { trait_type: 'Hunting', value: characterStats.skills.hunting.level.toString() },
+        { trait_type: 'Smithing', value: characterStats.skills.smithing.level.toString() },
+        { trait_type: 'Cooking', value: characterStats.skills.cooking.level.toString() },
+        { trait_type: 'Alchemy', value: characterStats.skills.alchemy.level.toString() },
+        { trait_type: 'Construction', value: characterStats.skills.construction.level.toString() }
       ],
       properties: {
         files: [ { uri: imageUrl, type: imageUrl.endsWith('.png') ? 'image/png' : 'image/svg+xml' } ]
@@ -211,7 +226,7 @@ export async function createCharacterCNFT(
     console.log('[IMG] createCharacterCNFT metadataUri', metadataUri)
     
     // Build Metaplex standard metadata (exactly like frontend)
-    const displayName = `${characterName} (Level ${characterStats.level}, Combat ${characterStats.combatLevel})`;
+    const displayName = `${characterName} (Combat ${characterStats.combatLevel})`;
     
     const metadata = {
       name: displayName,
@@ -324,7 +339,7 @@ export async function updateCharacterCNFT(
     // when multiple quick updates happen in sequence.
     try {
       const currentParsed = await parseCharacterFromMetadata(assetWithProof);
-      const skillKeys = ['attack','strength','defense','magic','projectiles','vitality','crafting','luck','gathering'] as const;
+      const skillKeys = ['attack','strength','defense','magic','projectiles','vitality','crafting','luck','mining','woodcutting','fishing','farming','hunting','smithing','cooking','alchemy','construction'] as const;
       const mergedSkills: any = { ...characterStats.skills };
       for (const k of skillKeys) {
         const incoming = (characterStats.skills as any)[k]?.level ?? 1;
@@ -334,7 +349,10 @@ export async function updateCharacterCNFT(
       // Recompute derived fields from merged skills
       const att = mergedSkills.attack.level, str = mergedSkills.strength.level, def = mergedSkills.defense.level;
       const mag = mergedSkills.magic.level, pro = mergedSkills.projectiles.level, vit = mergedSkills.vitality.level;
-      const totalLevel = att + str + def + mag + pro + vit + mergedSkills.crafting.level + mergedSkills.luck.level + mergedSkills.gathering.level;
+      const totalLevel = att + str + def + mag + pro + vit + mergedSkills.crafting.level + mergedSkills.luck.level + 
+                        mergedSkills.mining.level + mergedSkills.woodcutting.level + mergedSkills.fishing.level + 
+                        mergedSkills.farming.level + mergedSkills.hunting.level + mergedSkills.smithing.level + 
+                        mergedSkills.cooking.level + mergedSkills.alchemy.level + mergedSkills.construction.level;
       const melee = (att + str + def) / 3;
       const magicStyle = (mag * 1.5 + def) / 2.5;
       const projectileStyle = (pro + def) / 2;
@@ -353,25 +371,32 @@ export async function updateCharacterCNFT(
     const imageUrl = resolveDefaultCharacterImageUrl(characterStats.name)
     console.log('[IMG] updateCharacterCNFT imageUrl', imageUrl)
     const jsonPayload = {
-      name: `${characterStats.name} (Level ${characterStats.level}${characterStats.combatLevel != null ? `, Combat ${characterStats.combatLevel}` : ''})`,
+      name: `${characterStats.name} (Combat ${characterStats.combatLevel || 1})`,
       symbol: 'PLAYER',
-      description: `Level ${characterStats.level} ${characterStats.characterClass} with ${characterStats.totalLevel} total skill levels`,
+      description: `Character with ${characterStats.totalLevel} total skill levels`,
       image: imageUrl,
       external_url: 'https://obeliskparadox.com',
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
-        { trait_type: 'Level', value: characterStats.level.toString() },
         ...(characterStats.combatLevel != null ? [{ trait_type: 'Combat Level', value: characterStats.combatLevel.toString() }] : []),
         { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
-        { trait_type: 'Att', value: (characterStats.skills.attack?.level ?? 1).toString() },
-        { trait_type: 'Str', value: (characterStats.skills.strength?.level ?? 1).toString() },
-        { trait_type: 'Def', value: (characterStats.skills.defense?.level ?? 1).toString() },
-        { trait_type: 'Mag', value: (characterStats.skills.magic?.level ?? 1).toString() },
-        { trait_type: 'Pro', value: (characterStats.skills.projectiles?.level ?? 1).toString() },
-        { trait_type: 'Vit', value: (characterStats.skills.vitality?.level ?? 1).toString() },
-        { trait_type: 'Cra', value: (characterStats.skills.crafting?.level ?? 1).toString() },
-        { trait_type: 'Luc', value: (characterStats.skills.luck?.level ?? 1).toString() },
-        { trait_type: 'Gat', value: (characterStats.skills.gathering?.level ?? 1).toString() }
+        { trait_type: 'Attack', value: (characterStats.skills.attack?.level ?? 1).toString() },
+        { trait_type: 'Strength', value: (characterStats.skills.strength?.level ?? 1).toString() },
+        { trait_type: 'Defense', value: (characterStats.skills.defense?.level ?? 1).toString() },
+        { trait_type: 'Magic', value: (characterStats.skills.magic?.level ?? 1).toString() },
+        { trait_type: 'Projectiles', value: (characterStats.skills.projectiles?.level ?? 1).toString() },
+        { trait_type: 'Vitality', value: (characterStats.skills.vitality?.level ?? 1).toString() },
+        { trait_type: 'Crafting', value: (characterStats.skills.crafting?.level ?? 1).toString() },
+        { trait_type: 'Luck', value: (characterStats.skills.luck?.level ?? 1).toString() },
+        { trait_type: 'Mining', value: (characterStats.skills.mining?.level ?? 1).toString() },
+        { trait_type: 'Woodcutting', value: (characterStats.skills.woodcutting?.level ?? 1).toString() },
+        { trait_type: 'Fishing', value: (characterStats.skills.fishing?.level ?? 1).toString() },
+        { trait_type: 'Farming', value: (characterStats.skills.farming?.level ?? 1).toString() },
+        { trait_type: 'Hunting', value: (characterStats.skills.hunting?.level ?? 1).toString() },
+        { trait_type: 'Smithing', value: (characterStats.skills.smithing?.level ?? 1).toString() },
+        { trait_type: 'Cooking', value: (characterStats.skills.cooking?.level ?? 1).toString() },
+        { trait_type: 'Alchemy', value: (characterStats.skills.alchemy?.level ?? 1).toString() },
+        { trait_type: 'Construction', value: (characterStats.skills.construction?.level ?? 1).toString() }
       ],
       properties: { files: [ { uri: imageUrl, type: 'image/svg+xml' } ] },
       // Include full stats to guarantee skill visibility even if a reader ignores attributes
@@ -384,8 +409,8 @@ export async function updateCharacterCNFT(
     const combatLevel = characterStats.combatLevel;
     const shouldIncludeCombat = (combatLevel !== null && combatLevel !== undefined);
     const displayName = shouldIncludeCombat ? 
-      `${characterStats.name} (Level ${characterStats.level}, Combat ${combatLevel})` : 
-      `${characterStats.name} (Level ${characterStats.level})`;
+      `${characterStats.name} (Combat ${combatLevel})` : 
+      `${characterStats.name}`;
       
     console.log(`🔧 Name generation: shouldIncludeCombat=${shouldIncludeCombat}, displayName="${displayName}"`);
     
@@ -475,6 +500,18 @@ export async function updateCharacterCNFT(
     } catch (_) {
       // non-fatal
     }
+    
+    // Sync the updated character to the database
+    try {
+      console.log('🔄 Syncing updated character to database...');
+      const { CharacterService } = await import('./character');
+      await CharacterService.syncCharacterFromCNFT(assetId);
+      console.log('✅ Character synced to database successfully');
+    } catch (dbError) {
+      console.error('❌ Failed to sync character to database:', dbError);
+      // Don't fail the entire operation if database sync fails
+    }
+    
     return { success: true, signature: sig ? String(sig) : undefined };
     
   } catch (error) {
@@ -936,11 +973,11 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
       // Full names (legacy)
       'Attack': 'attack', 'Strength': 'strength', 'Defense': 'defense',
       'Magic': 'magic', 'Projectiles': 'projectiles', 'Vitality': 'vitality',
-      'Crafting': 'crafting', 'Luck': 'luck', 'Gathering': 'gathering',
+      'Crafting': 'crafting', 'Luck': 'luck', 'Mining': 'mining', 'Woodcutting': 'woodcutting', 'Fishing': 'fishing', 'Farming': 'farming', 'Hunting': 'hunting', 'Smithing': 'smithing', 'Cooking': 'cooking', 'Alchemy': 'alchemy', 'Construction': 'construction',
       // Shortened names (current)
       'Att': 'attack', 'Str': 'strength', 'Def': 'defense', 
       'Mag': 'magic', 'Pro': 'projectiles', 'Vit': 'vitality',
-      'Cra': 'crafting', 'Luc': 'luck', 'Gat': 'gathering'
+      'Cra': 'crafting', 'Luc': 'luck', 'Min': 'mining', 'Woo': 'woodcutting', 'Fish': 'fishing', 'Farm': 'farming', 'Hunt': 'hunting', 'Smith': 'smithing', 'Cook': 'cooking', 'Alch': 'alchemy', 'Const': 'construction'
     };
     
     metadata.attributes.forEach((attr: any) => {
@@ -1025,7 +1062,7 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
           const skillMap = {
             'Att': 'attack', 'Str': 'strength', 'Def': 'defense', 
             'Mag': 'magic', 'Pro': 'projectiles', 'Vit': 'vitality',
-            'Cra': 'crafting', 'Luc': 'luck', 'Gat': 'gathering'
+            'Cra': 'crafting', 'Luc': 'luck', 'Min': 'mining', 'Woo': 'woodcutting', 'Fish': 'fishing', 'Farm': 'farming', 'Hunt': 'hunting', 'Smith': 'smithing', 'Cook': 'cooking', 'Alch': 'alchemy', 'Const': 'construction'
           };
           
           metadataJson.attributes.forEach((attr: any) => {
@@ -1049,7 +1086,7 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
   }
   
   // Fill in missing skills with defaults (exactly like frontend)
-  const defaultSkills = ['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'gathering'];
+  const defaultSkills = ['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'mining', 'woodcutting', 'fishing', 'farming', 'hunting', 'smithing', 'cooking', 'alchemy', 'construction'];
   defaultSkills.forEach(skill => {
     if (!skillData[skill]) {
       skillData[skill] = { level: 1, experience: 0 };
@@ -1062,18 +1099,9 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
   // Build character stats object (exactly matching frontend structure)
   return {
     name: characterName,
-    level: characterLevel,
     combatLevel,
     totalLevel,
-    characterClass,
     version: characterVersion,
-    stats: {
-      str: 10,
-      agi: 10,
-      int: 10,
-      vit: 10,
-      luk: 10
-    },
     experience,
     skills: {
       attack: skillData.attack || { level: 1, experience: 0 },
@@ -1084,7 +1112,15 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
       vitality: skillData.vitality || { level: 1, experience: 0 },
       crafting: skillData.crafting || { level: 1, experience: 0 },
       luck: skillData.luck || { level: 1, experience: 0 },
-      gathering: skillData.gathering || { level: 1, experience: 0 }
+      mining: skillData.mining || { level: 1, experience: 0 },
+      woodcutting: skillData.woodcutting || { level: 1, experience: 0 },
+      fishing: skillData.fishing || { level: 1, experience: 0 },
+      farming: skillData.farming || { level: 1, experience: 0 },
+      hunting: skillData.hunting || { level: 1, experience: 0 },
+      smithing: skillData.smithing || { level: 1, experience: 0 },
+      cooking: skillData.cooking || { level: 1, experience: 0 },
+      alchemy: skillData.alchemy || { level: 1, experience: 0 },
+      construction: skillData.construction || { level: 1, experience: 0 }
     },
     skillExperience: {
       attack: 0,
@@ -1095,13 +1131,15 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
       vitality: 0,
       crafting: 0,
       luck: 0,
-      gathering: 0
-    },
-    achievements: ['First Character'],
-    equipment: {
-      weapon: 'None',
-      armor: 'None',
-      accessory: 'None'
+      mining: 0,
+      woodcutting: 0,
+      fishing: 0,
+      farming: 0,
+      hunting: 0,
+      smithing: 0,
+      cooking: 0,
+      alchemy: 0,
+      construction: 0
     }
   };
 }
@@ -1111,22 +1149,29 @@ async function storeCharacterMetadata(metadataId: string, characterStats: Charac
   try {
     const metadataPayload = {
       name: characterStats.name,
-      description: `Level ${characterStats.level} ${characterStats.characterClass} with ${characterStats.totalLevel} total skill levels`,
+      description: `Character with ${characterStats.totalLevel} total skill levels`,
       image: resolveDefaultCharacterImageUrl(characterStats.name),
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
-        { trait_type: 'Level', value: characterStats.level.toString() },
         { trait_type: 'Combat Level', value: characterStats.combatLevel.toString() },
         { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
-        { trait_type: 'Att', value: characterStats.skills.attack.level.toString() },
-        { trait_type: 'Str', value: characterStats.skills.strength.level.toString() },
-        { trait_type: 'Def', value: characterStats.skills.defense.level.toString() },
-        { trait_type: 'Mag', value: characterStats.skills.magic.level.toString() },
-        { trait_type: 'Pro', value: characterStats.skills.projectiles.level.toString() },
-        { trait_type: 'Vit', value: characterStats.skills.vitality.level.toString() },
-        { trait_type: 'Cra', value: characterStats.skills.crafting.level.toString() },
-        { trait_type: 'Luc', value: characterStats.skills.luck.level.toString() },
-        { trait_type: 'Gat', value: characterStats.skills.gathering.level.toString() }
+        { trait_type: 'Attack', value: characterStats.skills.attack.level.toString() },
+        { trait_type: 'Strength', value: characterStats.skills.strength.level.toString() },
+        { trait_type: 'Defense', value: characterStats.skills.defense.level.toString() },
+        { trait_type: 'Magic', value: characterStats.skills.magic.level.toString() },
+        { trait_type: 'Projectiles', value: characterStats.skills.projectiles.level.toString() },
+        { trait_type: 'Vitality', value: characterStats.skills.vitality.level.toString() },
+        { trait_type: 'Crafting', value: characterStats.skills.crafting.level.toString() },
+        { trait_type: 'Luck', value: characterStats.skills.luck.level.toString() },
+        { trait_type: 'Mining', value: characterStats.skills.mining.level.toString() },
+        { trait_type: 'Woodcutting', value: characterStats.skills.woodcutting.level.toString() },
+        { trait_type: 'Fishing', value: characterStats.skills.fishing.level.toString() },
+        { trait_type: 'Farming', value: characterStats.skills.farming.level.toString() },
+        { trait_type: 'Hunting', value: characterStats.skills.hunting.level.toString() },
+        { trait_type: 'Smithing', value: characterStats.skills.smithing.level.toString() },
+        { trait_type: 'Cooking', value: characterStats.skills.cooking.level.toString() },
+        { trait_type: 'Alchemy', value: characterStats.skills.alchemy.level.toString() },
+        { trait_type: 'Construction', value: characterStats.skills.construction.level.toString() }
       ],
       characterStats // Store full character data for fallback
     };
