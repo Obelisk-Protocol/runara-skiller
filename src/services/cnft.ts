@@ -7,14 +7,17 @@ import {
   delegate,
   mplBubblegum
 } from '@metaplex-foundation/mpl-bubblegum';
+import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { 
   publicKey, 
   some, 
   none,
   generateSigner,
-  signerIdentity
+  signerIdentity,
+  createSignerFromKeypair
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { Connection, PublicKey } from '@solana/web3.js';
 import { umi, serverSigner, COLLECTION_MINT, MERKLE_TREE, getDasUrl, getRpcUrl } from '../config/solana';
 import { CharacterStats, Character } from '../types/character';
 import { uploadJsonToArweave } from './storage';
@@ -299,46 +302,39 @@ export async function createCharacterCNFT(
   }
 }
 
-// Update character cNFT metadata (exactly matching your frontend logic)
+// Update character cNFT metadata
+// FIXED: Reverted to SDK-based approach (like working commit be1962f)
+// The manual DAS API approach was buggy and overcomplicated
 export async function updateCharacterCNFT(
   assetId: string,
   characterStats: CharacterStats,
   playerPDA?: string
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    // Guard against mock/placeholder asset IDs
-    if (!assetId || assetId.startsWith('cnft-') || assetId.length < 32) {
-      return { success: false, error: 'Invalid or mock asset ID; cannot update metadata' };
-    }
-    console.log('🔄 Starting cNFT metadata update for:', assetId);
+    console.log('🔄 Updating cNFT metadata for:', assetId);
     
-    // Fetch asset with proof using DAS API directly (more reliable)
-    const fetchAssetWithRetry = async (retries = 3) => {
+    // Use EXACT same pattern as working route.ts
+    // Use regular RPC URL (not DAS-specific) - like working route does
+    const rpcUrl = getRpcUrl(); // Use regular RPC, not DAS URL
+    const umiWithBubblegum = createUmi(rpcUrl)
+      .use(mplBubblegum())
+      .use(signerIdentity(serverSigner));
+    
+    console.log(`🔍 Using RPC: ${rpcUrl}`);
+    
+    // Get asset with proof using EXACT same pattern as working route
+    console.log('📋 Fetching asset with proof...');
+    let assetWithProof;
+    
+    const fetchAssetWithRetry = async (retries = 3): Promise<any> => {
       for (let i = 0; i < retries; i++) {
         try {
           console.log(`🔄 Attempt ${i + 1}/${retries} to fetch asset proof...`);
-          
-          // Use DAS API directly instead of Metaplex wrapper
-          const response = await fetch('https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 'my-id',
-              method: 'getAsset',
-              params: {
-                id: assetId
-              }
-            })
+          const asset = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+            truncateCanopy: true
           });
-          
-          const data = await response.json() as any;
-          if (data.result) {
-            console.log('✅ Asset fetched successfully via DAS API');
-            return data.result;
-          } else {
-            throw new Error(`DAS API error: ${data.error?.message || 'Unknown error'}`);
-          }
+          console.log('✅ Asset proof fetched successfully');
+          return asset;
         } catch (error) {
           console.error(`❌ Attempt ${i + 1} failed:`, error);
           if (i === retries - 1) throw error;
@@ -346,47 +342,21 @@ export async function updateCharacterCNFT(
         }
       }
     };
-
-    const assetWithProof = await fetchAssetWithRetry();
-    if (!assetWithProof) {
-      throw new Error('Failed to fetch asset proof');
-    }
     
-    // Merge incoming characterStats with current on-chain to prevent accidental regressions
-    // when multiple quick updates happen in sequence.
     try {
-      const currentParsed = await parseCharacterFromMetadata(assetWithProof);
-      const skillKeys = ['attack','strength','defense','magic','projectiles','vitality','crafting','luck','mining','woodcutting','fishing','farming','hunting','smithing','cooking','alchemy','construction'] as const;
-      const mergedSkills: any = { ...characterStats.skills };
-      for (const k of skillKeys) {
-        const incoming = (characterStats.skills as any)[k]?.level ?? 1;
-        const onchain = (currentParsed.skills as any)[k]?.level ?? 1;
-        mergedSkills[k] = { level: Math.max(incoming, onchain), experience: ((Math.max(incoming, onchain)) * 100) };
-      }
-      // Recompute derived fields from merged skills
-      const att = mergedSkills.attack.level, str = mergedSkills.strength.level, def = mergedSkills.defense.level;
-      const mag = mergedSkills.magic.level, pro = mergedSkills.projectiles.level, vit = mergedSkills.vitality.level;
-      const totalLevel = att + str + def + mag + pro + vit + mergedSkills.crafting.level + mergedSkills.luck.level + 
-                        mergedSkills.mining.level + mergedSkills.woodcutting.level + mergedSkills.fishing.level + 
-                        mergedSkills.farming.level + mergedSkills.hunting.level + mergedSkills.smithing.level + 
-                        mergedSkills.cooking.level + mergedSkills.alchemy.level + mergedSkills.construction.level;
-      const melee = (att + str + def) / 3;
-      const magicStyle = (mag * 1.5 + def) / 2.5;
-      const projectileStyle = (pro + def) / 2;
-      const combatLevel = Math.floor(Math.max(melee, magicStyle, projectileStyle) + vit * 0.25);
-      characterStats = {
-        ...characterStats,
-        skills: mergedSkills,
-        totalLevel,
-        combatLevel,
-      } as any;
-    } catch (_) {
-      // If merge fails, continue with provided stats
+      assetWithProof = await fetchAssetWithRetry();
+    } catch (proofError) {
+      console.error('❌ Failed to get asset proof after retries:', proofError);
+      return {
+        success: false,
+        error: `Failed to get asset proof: ${proofError instanceof Error ? proofError.message : 'Unknown error'}`
+      };
     }
     
-    // Build new JSON and upload to Arweave (production standard)
-    const imageUrl = resolveDefaultCharacterImageUrl(characterStats.name)
-    console.log('[IMG] updateCharacterCNFT imageUrl', imageUrl)
+    // CRITICAL: Use proof IMMEDIATELY - don't delay or tree state may change
+    // Build JSON payload and upload to Arweave FIRST (before using proof)
+    console.log('🔄 Updating cNFT metadata for:', assetId);
+    const imageUrl = resolveDefaultCharacterImageUrl(characterStats.name);
     const jsonPayload = {
       name: `${characterStats.name} (Combat ${characterStats.combatLevel || 1})`,
       symbol: 'PLAYER',
@@ -415,46 +385,87 @@ export async function updateCharacterCNFT(
         { trait_type: 'Alchemy', value: (characterStats.skills.alchemy?.level ?? 1).toString() },
         { trait_type: 'Construction', value: (characterStats.skills.construction?.level ?? 1).toString() }
       ],
-      properties: { files: [ { uri: imageUrl, type: 'image/svg+xml' } ] },
-      // Include full stats to guarantee skill visibility even if a reader ignores attributes
+      properties: { files: [{ uri: imageUrl, type: 'image/svg+xml' }] },
       characterStats
-    }
-    const { uri: newUri } = await uploadJsonToArweave(jsonPayload)
-    console.log('[IMG] updateCharacterCNFT metadataUri', newUri)
-    
-    // Generate display name with combat level (exactly like frontend)
-    const combatLevel = characterStats.combatLevel;
-    const shouldIncludeCombat = (combatLevel !== null && combatLevel !== undefined);
-    const displayName = shouldIncludeCombat ? 
-      `${characterStats.name} (Combat ${combatLevel})` : 
-      `${characterStats.name}`;
-      
-    console.log(`🔧 Name generation: shouldIncludeCombat=${shouldIncludeCombat}, displayName="${displayName}"`);
-    
-    // Store detailed character data off-chain (dev fallback only)
-    // await storeCharacterMetadata(metadataId, characterStats);
-
-    // On-chain update: keep the instruction size small to avoid exceeding
-    // the Bubblegum transaction size limit. Update only the URI on-chain;
-    // the new JSON contains the updated name/levels for indexers.
-    const updateArgs: any = {
-      name: none<string>(),
-      uri: some(newUri)
     };
     
-    // Since getAssetWithProof is failing, let's try a different approach
-    // We'll use the DAS API response to get the basic info and try to update without proof
-    console.log('🔄 Attempting to update cNFT metadata...');
-    console.log('🔍 DAS API response structure:', JSON.stringify(assetWithProof, null, 2));
-    console.log('🔍 updateArgs:', JSON.stringify(updateArgs, null, 2));
+    // Upload metadata to Arweave and update URI so skill levels persist
+    const { uri: newUri } = await uploadJsonToArweave(jsonPayload);
+    console.log('✅ Metadata uploaded to Arweave:', newUri);
+    console.log(`📏 URI length: ${newUri.length} characters`);
     
-    // For now, let's just return success since the metadata was uploaded to Arweave
-    // The blockchain update can be handled separately or through a different method
-    console.log('✅ Metadata uploaded to Arweave successfully');
-    console.log('⚠️  Blockchain update skipped due to getAssetWithProof issues');
+    // Try updating ONLY URI first (most important for skill persistence)
+    // If transaction is still too large, we'll need to use a shorter storage solution
+    const updateArgs = {
+      uri: some(newUri)
+      // Skip name update to save transaction size - URI is more important for skill data
+    };
     
-    return { success: true, signature: 'metadata-uploaded-to-arweave' };
+    // Determine leaf owner
+    const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
+    console.log(`🎯 Using leaf owner: ${leafOwner}`);
+    
+    // Build update transaction using EXACT same pattern as working route
+    let updateTx = updateMetadata(umiWithBubblegum, {
+      ...assetWithProof,
+      leafOwner: leafOwner,
+      currentMetadata: assetWithProof.metadata,
+      updateArgs,
+      collectionMint: publicKey(COLLECTION_MINT)
+    });
 
+    // Send with retry using EXACT same pattern as working route
+    console.log('🚀 Sending metadata update transaction...');
+    
+    const sendTransactionWithRetry = async (retries = 2): Promise<string> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          console.log(`🔄 Transaction attempt ${i + 1}/${retries}...`);
+          const result = await updateTx.sendAndConfirm(umiWithBubblegum, {
+            send: { skipPreflight: false }
+          });
+          const rawSig: any = (result as any)?.signature;
+          if (typeof rawSig === 'string') return rawSig;
+          if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
+            const bs58 = require('bs58');
+            return bs58.encode(Uint8Array.from(rawSig));
+          }
+          return String(rawSig || '');
+        } catch (error: any) {
+          console.error(`❌ Transaction attempt ${i + 1} failed:`, error.message);
+          
+          // Check if it's a stale proof error (like working route)
+          if (error.message?.includes('Invalid root recomputed from proof') && i < retries - 1) {
+            console.log('🔄 Detected stale proof, refetching asset and retrying...');
+            
+            // Refetch the asset with fresh proof
+            assetWithProof = await fetchAssetWithRetry();
+            
+            // Rebuild the transaction with fresh proof
+            updateTx = updateMetadata(umiWithBubblegum, {
+              ...assetWithProof,
+              leafOwner: leafOwner,
+              currentMetadata: assetWithProof.metadata,
+              updateArgs,
+              collectionMint: publicKey(COLLECTION_MINT)
+            });
+            
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          }
+          
+          if (i === retries - 1) throw error;
+        }
+      }
+      throw new Error('Update failed after retries');
+    };
+    
+    const signature = await sendTransactionWithRetry();
+    
+    console.log('✅ cNFT metadata updated on-chain! Signature:', signature);
+    return { success: true, signature };
+    
   } catch (error) {
     console.error('❌ cNFT metadata update error:', error);
     return {
@@ -488,7 +499,7 @@ export async function fetchCharacterFromCNFT(assetId: string): Promise<Character
           jsonrpc: '2.0',
           id: 'getAsset',
           method: 'getAsset',
-          params: { id: assetId }
+          params: [ { id: assetId } ]
         } as any;
         const res = await fetch(rpcUrl, {
           method: 'POST',

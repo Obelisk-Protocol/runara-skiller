@@ -17,12 +17,63 @@ import healthRoutes from './routes/health';
 import metadataRoutes from './routes/metadata';
 import dasRoutes from './routes/das';
 import slotRoutes from './routes/slots';
+import cobxRoutes from './routes/cobx';
+import marketplaceRoutes from './routes/marketplace';
+import playersRoutes from './routes/players';
 
 // Load environment variables
 dotenv.config();
 
+// Validate critical environment variables at startup
+function validateEnvironment() {
+  const requiredVars = [
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE',
+    'PRIVATE_SERVER_WALLET',
+    'SOLANA_CLUSTER'
+  ];
+
+  const missing: string[] = [];
+  for (const varName of requiredVars) {
+    if (!process.env[varName]) {
+      missing.push(varName);
+    }
+  }
+
+  if (missing.length > 0) {
+    console.error('❌ Missing required environment variables:', missing.join(', '));
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  // Validate cluster-specific token mints
+  const cluster = (process.env.SOLANA_CLUSTER || '').toLowerCase();
+  const isMainnet = cluster === 'mainnet-beta' || cluster === 'mainnet';
+  
+  if (isMainnet && !process.env.COBX_MINT_MAINNET) {
+    console.error('❌ Missing COBX_MINT_MAINNET for mainnet cluster');
+    throw new Error('COBX_MINT_MAINNET environment variable is required for mainnet-beta cluster');
+  }
+
+  if (!isMainnet && !process.env.COBX_MINT_DEVNET) {
+    console.error('❌ Missing COBX_MINT_DEVNET for devnet cluster');
+    throw new Error('COBX_MINT_DEVNET environment variable is required for devnet cluster');
+  }
+
+  console.log('✅ Environment variables validated');
+  console.log(`🌐 Cluster: ${cluster === 'mainnet-beta' || cluster === 'mainnet' ? 'mainnet-beta' : 'devnet'}`);
+}
+
+try {
+  validateEnvironment();
+} catch (error) {
+  console.error('❌ Server startup failed:', error);
+  process.exit(1);
+}
+
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Railway automatically sets PORT environment variable
+// Use PORT if set, otherwise default to 3000 for local development
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Middleware
 app.use(helmet());
@@ -47,6 +98,11 @@ app.use('/api/metadata', metadataRoutes);
 app.use('/api/player-metadata', metadataRoutes);
 app.use('/api/das', dasRoutes);
 app.use('/api/slots', slotRoutes);
+// Route alias for Unity compatibility
+app.use('/api/character-cnft-slots', slotRoutes);
+app.use('/api/cobx', cobxRoutes);
+app.use('/api/marketplace', marketplaceRoutes);
+app.use('/api/players', playersRoutes);
 
 // Root endpoint
 app.get('/', (req: any, res: any) => {
@@ -75,15 +131,21 @@ app.use('*', (req: any, res: any) => {
   });
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Obelisk Skiller Backend running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌐 Listening on: 0.0.0.0:${PORT}`);
+  console.log(`📌 PORT env var: ${process.env.PORT || 'not set (using default 3000)'}`);
   const configuredBase = (process.env.BACKEND_URL || '').replace(/\/$/, '');
   const localBase = `http://localhost:${PORT}`;
   const backendBase = configuredBase || localBase;
   console.log(`🧭 BACKEND_BASE for metadata fetch: ${backendBase}`);
-  await ensureNftTable();
+  
+  // Bootstrap database table (non-blocking - server will start even if this fails)
+  ensureNftTable().catch(err => {
+    console.warn('⚠️ Bootstrap completed with warnings (server continues):', err instanceof Error ? err.message : String(err));
+  });
 
   // Background worker: periodically sync on-chain for assets that recently leveled up
   const cooldownMs = Number(process.env.XP_SYNC_COOLDOWN_MS || 60000)

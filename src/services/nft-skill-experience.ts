@@ -180,21 +180,79 @@ export async function addSkillXp(
       const prevRowLevel = Number(row?.level || 1)
       const newLevel = xpToLevel(newXp)
       let leveledUp = false
+      
+      // Log level-up detection for debugging
       if (newLevel > prevRowLevel) {
-        const updSql = `update nft_skill_experience set level = $1, pending_onchain_update = true, updated_at = now() where asset_id = $2 and skill = $3`
-        await client.query(updSql, [newLevel, assetId, skill])
-        leveledUp = true
+        console.log(`🎉 [LEVEL_UP:PG] ${skill} leveled up! Level ${prevRowLevel} -> ${newLevel} (XP: ${newXp})`)
+      }
+      
+      // Always update level to match XP (ensures level is always in sync)
+      if (newLevel !== prevRowLevel) {
+        const updSql = `update nft_skill_experience set level = $1, pending_onchain_update = $2, updated_at = now() where asset_id = $3 and skill = $4`
+        await client.query(updSql, [newLevel, newLevel > prevRowLevel, assetId, skill])
+        leveledUp = newLevel > prevRowLevel
+        
+        // Update nfts table with new level
         const nftsRow = await NftColumns.get(assetId)
         const playerPda = nftsRow?.player_pda || null
         let stats: CharacterStats | null = null
         if (nftsRow) {
+          // CRITICAL: Load ALL skills from nft_skill_experience table to preserve all skill levels
+          const allSkills = await getAllSkillXp(assetId)
           stats = NftColumns.columnsToStats(nftsRow)
+          
+          // Merge all skills from nft_skill_experience into stats (preserves all existing levels)
+          // IMPORTANT: Recalculate level from XP to ensure accuracy (don't trust stored level)
           const s: any = { ...stats.skills }
+          console.log(`📊 [PG] Loading all skills for cNFT update. Found ${Object.keys(allSkills).length} skills`)
+          for (const [skillKey, skillData] of Object.entries(allSkills)) {
+            const sk = skillKey as CharacterSkill
+            const xp = skillData.experience
+            // Recalculate level from XP to ensure it's correct
+            const calculatedLevel = xp > 0 ? xpToLevel(xp) : 1
+            if (xp > 0) {
+              console.log(`  - ${sk}: XP=${xp}, Level=${calculatedLevel} (stored level was ${skillData.level})`)
+            }
+            s[sk] = { level: calculatedLevel, experience: xp }
+          }
+          
+          // Update the specific skill that just leveled up
           const currentSkillLevel = Number((s as any)[skill]?.level || 1)
           const targetLevel = Math.max(currentSkillLevel, newLevel)
-          s[skill] = { level: targetLevel, experience: levelToXp(targetLevel) }
+          s[skill] = { level: targetLevel, experience: newXp }
+          
           stats = { ...stats, skills: s }
           await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, stats)
+          
+          // Update cNFT if skill leveled up (expensive operation, only on actual level up)
+          // Check if level actually increased (leveledUp flag is authoritative)
+          if (leveledUp && newLevel > currentSkillLevel) {
+            try {
+              console.log(`🔄 [PG] Updating cNFT for skill level up: ${skill} -> level ${newLevel} (was ${currentSkillLevel})`)
+              const cnftResult = await updateCharacterCNFT(assetId, stats, playerPda || undefined)
+              if (cnftResult.success) {
+                console.log(`✅ [PG] cNFT updated successfully for ${skill} level up to level ${newLevel}`)
+              } else {
+                console.warn(`⚠️ [PG] Failed to update cNFT: ${cnftResult.error}`)
+              }
+            } catch (cnftError) {
+              console.error(`❌ [PG] Error updating cNFT:`, cnftError)
+            }
+          } else if (leveledUp) {
+            // Level up occurred but nfts table already had the new level (race condition)
+            // Still update cNFT since leveledUp is true
+            try {
+              console.log(`🔄 [PG] Updating cNFT for skill level up (sync): ${skill} -> level ${newLevel}`)
+              const cnftResult = await updateCharacterCNFT(assetId, stats, playerPda || undefined)
+              if (cnftResult.success) {
+                console.log(`✅ [PG] cNFT updated successfully for ${skill} level up to level ${newLevel}`)
+              } else {
+                console.warn(`⚠️ [PG] Failed to update cNFT: ${cnftResult.error}`)
+              }
+            } catch (cnftError) {
+              console.error(`❌ [PG] Error updating cNFT:`, cnftError)
+            }
+          }
         }
       }
 
@@ -225,6 +283,13 @@ export async function addSkillXp(
   const currentLevel = Number((existing as any)?.level || 1)
   const computedLevel = xpToLevel(nextXp)
   const leveledUp = computedLevel > currentLevel
+  
+  // Log level-up detection for debugging
+  if (leveledUp) {
+    console.log(`🎉 [LEVEL_UP] ${skill} leveled up! Level ${currentLevel} -> ${computedLevel} (XP: ${currentXp} -> ${nextXp})`)
+  }
+  
+  // Always update level to match XP (ensures level is always in sync)
   const { error: upErr } = existing
     ? await supabase
         .from('nft_skill_experience')
@@ -235,32 +300,55 @@ export async function addSkillXp(
         .from('nft_skill_experience')
         .insert({ asset_id: assetId, skill, experience: nextXp, level: computedLevel, pending_onchain_update: leveledUp })
   if (upErr) throw upErr
-  if (leveledUp) {
+  
+  // Always update nfts table to keep level in sync (not just on level up)
+  if (computedLevel !== currentLevel) {
     const nftsRow = await NftColumns.get(assetId)
     const playerPda = nftsRow?.player_pda || null
     if (nftsRow) {
+      // CRITICAL: Load ALL skills from nft_skill_experience table to preserve all skill levels
+      const allSkills = await getAllSkillXp(assetId)
       const stats = NftColumns.columnsToStats(nftsRow)
+      
+      // Merge all skills from nft_skill_experience into stats (preserves all existing levels)
+      // IMPORTANT: Recalculate level from XP to ensure accuracy (don't trust stored level)
       const s: any = { ...stats.skills }
+      console.log(`📊 [Supabase] Loading all skills for cNFT update. Found ${Object.keys(allSkills).length} skills`)
+      for (const [skillKey, skillData] of Object.entries(allSkills)) {
+        const sk = skillKey as CharacterSkill
+        const xp = skillData.experience
+        // Recalculate level from XP to ensure it's correct
+        const calculatedLevel = xp > 0 ? xpToLevel(xp) : 1
+        if (xp > 0) {
+          console.log(`  - ${sk}: XP=${xp}, Level=${calculatedLevel} (stored level was ${skillData.level})`)
+        }
+        s[sk] = { level: calculatedLevel, experience: xp }
+      }
+      
+      // Update the specific skill that just leveled up
       const currentSkillLevel = Number((s as any)[skill]?.level || 1)
       const targetLevel = Math.max(currentSkillLevel, computedLevel)
-      s[skill] = { level: targetLevel, experience: levelToXp(targetLevel) }
+      s[skill] = { level: targetLevel, experience: nextXp }
+      
       const updatedStats = { ...stats, skills: s }
+      console.log(`📊 [Supabase] Final stats for cNFT update: ${skill}=${targetLevel}, woodcutting=${s.woodcutting?.level || 1}, mining=${s.mining?.level || 1}`)
       
       // Update database
       await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, updatedStats)
       
-      // Update cNFT if skill leveled up
-      if (computedLevel > currentSkillLevel) {
+      // Update cNFT if skill leveled up (expensive operation, only on actual level up)
+      // leveledUp flag is authoritative - if true, we should update cNFT regardless of nfts table state
+      if (leveledUp) {
         try {
-          console.log(`🔄 Updating cNFT for skill level up: ${skill} -> level ${computedLevel}`)
+          console.log(`🔄 [Supabase] Updating cNFT for skill level up: ${skill} -> level ${computedLevel} (was ${currentSkillLevel})`)
           const cnftResult = await updateCharacterCNFT(assetId, updatedStats, playerPda || undefined)
           if (cnftResult.success) {
-            console.log(`✅ cNFT updated successfully for ${skill} level up`)
+            console.log(`✅ [Supabase] cNFT updated successfully for ${skill} level up to level ${computedLevel}`)
           } else {
-            console.warn(`⚠️ Failed to update cNFT: ${cnftResult.error}`)
+            console.warn(`⚠️ [Supabase] Failed to update cNFT: ${cnftResult.error}`)
           }
         } catch (cnftError) {
-          console.error(`❌ Error updating cNFT:`, cnftError)
+          console.error(`❌ [Supabase] Error updating cNFT:`, cnftError)
         }
       }
     }

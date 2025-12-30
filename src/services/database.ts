@@ -443,14 +443,14 @@ export interface NftColumnsRow {
   combat_level: number
   total_level: number
   version: string
-  att: number
-  str: number
-  def: number
-  mag: number
-  pro: number
-  vit: number
-  cra: number
-  luc: number
+  attack: number
+  strength: number
+  defense: number
+  magic: number
+  projectiles: number
+  vitality: number
+  crafting: number
+  luck: number
   // New 18-skill system
   mining: number
   woodcutting: number
@@ -523,14 +523,14 @@ export class NftColumns {
       combat_level: stats.combatLevel,
       total_level: stats.totalLevel,
       version: stats.version,
-      att: stats.skills.attack?.level ?? 1,
-      str: stats.skills.strength?.level ?? 1,
-      def: stats.skills.defense?.level ?? 1,
-      mag: stats.skills.magic?.level ?? 1,
-      pro: stats.skills.projectiles?.level ?? 1,
-      vit: stats.skills.vitality?.level ?? 1,
-      cra: stats.skills.crafting?.level ?? 1,
-      luc: stats.skills.luck?.level ?? 1,
+      attack: stats.skills.attack?.level ?? 1,
+      strength: stats.skills.strength?.level ?? 1,
+      defense: stats.skills.defense?.level ?? 1,
+      magic: stats.skills.magic?.level ?? 1,
+      projectiles: stats.skills.projectiles?.level ?? 1,
+      vitality: stats.skills.vitality?.level ?? 1,
+      crafting: stats.skills.crafting?.level ?? 1,
+      luck: stats.skills.luck?.level ?? 1,
       mining: stats.skills.mining?.level ?? 1,
       woodcutting: stats.skills.woodcutting?.level ?? 1,
       fishing: stats.skills.fishing?.level ?? 1,
@@ -552,14 +552,14 @@ export class NftColumns {
       version,
       experience: 100, // Default experience
       skills: {
-        attack: { level: row.att, experience: row.att * 100 },
-        strength: { level: row.str, experience: row.str * 100 },
-        defense: { level: row.def, experience: row.def * 100 },
-        magic: { level: row.mag, experience: row.mag * 100 },
-        projectiles: { level: row.pro, experience: row.pro * 100 },
-        vitality: { level: row.vit, experience: row.vit * 100 },
-        crafting: { level: row.cra, experience: row.cra * 100 },
-        luck: { level: row.luc, experience: row.luc * 100 },
+        attack: { level: row.attack, experience: row.attack * 100 },
+        strength: { level: row.strength, experience: row.strength * 100 },
+        defense: { level: row.defense, experience: row.defense * 100 },
+        magic: { level: row.magic, experience: row.magic * 100 },
+        projectiles: { level: row.projectiles, experience: row.projectiles * 100 },
+        vitality: { level: row.vitality, experience: row.vitality * 100 },
+        crafting: { level: row.crafting, experience: row.crafting * 100 },
+        luck: { level: row.luck, experience: row.luck * 100 },
         mining: { level: row.mining || 1, experience: (row.mining || 1) * 100 },
         woodcutting: { level: row.woodcutting || 1, experience: (row.woodcutting || 1) * 100 },
         fishing: { level: row.fishing || 1, experience: (row.fishing || 1) * 100 },
@@ -580,19 +580,19 @@ export class NftColumns {
   }
 
   static computeTotals(row: Partial<NftColumnsRow>): { total_level: number; combat_level: number } {
-    const att = row.att ?? 1, str = row.str ?? 1, def = row.def ?? 1,
-      mag = row.mag ?? 1, pro = row.pro ?? 1, vit = row.vit ?? 1,
-      cra = row.cra ?? 1, luc = row.luc ?? 1,
+    const attack = row.attack ?? 1, strength = row.strength ?? 1, defense = row.defense ?? 1,
+      magic = row.magic ?? 1, projectiles = row.projectiles ?? 1, vitality = row.vitality ?? 1,
+      crafting = row.crafting ?? 1, luck = row.luck ?? 1,
       mining = row.mining ?? 1, woodcutting = row.woodcutting ?? 1, fishing = row.fishing ?? 1,
       farming = row.farming ?? 1, hunting = row.hunting ?? 1, smithing = row.smithing ?? 1,
       cooking = row.cooking ?? 1, alchemy = row.alchemy ?? 1, construction = row.construction ?? 1
-    const total = att + str + def + mag + pro + vit + cra + luc + 
+    const total = attack + strength + defense + magic + projectiles + vitality + crafting + luck + 
                   mining + woodcutting + fishing + farming + hunting + 
                   smithing + cooking + alchemy + construction
-    const melee = (att + str + def) / 3
-    const magicStyle = (mag * 1.5 + def) / 2.5
-    const projectileStyle = (pro + def) / 2
-    const combat = Math.floor(Math.max(melee, magicStyle, projectileStyle) + vit * 0.25)
+    const melee = (attack + strength + defense) / 3
+    const magicStyle = (magic * 1.5 + defense) / 2.5
+    const projectileStyle = (projectiles + defense) / 2
+    const combat = Math.floor(Math.max(melee, magicStyle, projectileStyle) + vitality * 0.25)
     return { total_level: total, combat_level: combat }
   }
 
@@ -602,7 +602,7 @@ export class NftColumns {
       ...existing,
       ...incoming,
     }
-    const skills: (keyof NftColumnsRow)[] = ['att','str','def','mag','pro','vit','cra','luc','mining','woodcutting','fishing','farming','hunting','smithing','cooking','alchemy','construction']
+    const skills: (keyof NftColumnsRow)[] = ['attack','strength','defense','magic','projectiles','vitality','crafting','luck','mining','woodcutting','fishing','farming','hunting','smithing','cooking','alchemy','construction']
     for (const k of skills) {
       const e = (existing as any)?.[k]
       const i = (incoming as any)?.[k]
@@ -640,7 +640,7 @@ export class NftColumns {
         const sql = `
           insert into nfts (
             asset_id, player_pda, name, combat_level, total_level, version,
-            att, str, def, mag, pro, vit, cra, luc, mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction,
+            attack, strength, defense, magic, projectiles, vitality, crafting, luck, mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction,
             last_arweave_uri, last_update_sig, updated_at
           ) values (
             $1,$2,$3,$4,$5,$6,
@@ -652,15 +652,23 @@ export class NftColumns {
             combat_level = excluded.combat_level,
             total_level = excluded.total_level,
             version = excluded.version,
-            att = greatest(nfts.att, excluded.att),
-            str = greatest(nfts.str, excluded.str),
-            def = greatest(nfts.def, excluded.def),
-            mag = greatest(nfts.mag, excluded.mag),
-            pro = greatest(nfts.pro, excluded.pro),
-            vit = greatest(nfts.vit, excluded.vit),
-            cra = greatest(nfts.cra, excluded.cra),
-            luc = greatest(nfts.luc, excluded.luc),
-            mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction = greatest(nfts.mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction, excluded.mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction),
+            attack = greatest(nfts.attack, excluded.attack),
+            strength = greatest(nfts.strength, excluded.strength),
+            defense = greatest(nfts.defense, excluded.defense),
+            magic = greatest(nfts.magic, excluded.magic),
+            projectiles = greatest(nfts.projectiles, excluded.projectiles),
+            vitality = greatest(nfts.vitality, excluded.vitality),
+            crafting = greatest(nfts.crafting, excluded.crafting),
+            luck = greatest(nfts.luck, excluded.luck),
+            mining = greatest(nfts.mining, excluded.mining),
+            woodcutting = greatest(nfts.woodcutting, excluded.woodcutting),
+            fishing = greatest(nfts.fishing, excluded.fishing),
+            farming = greatest(nfts.farming, excluded.farming),
+            hunting = greatest(nfts.hunting, excluded.hunting),
+            smithing = greatest(nfts.smithing, excluded.smithing),
+            cooking = greatest(nfts.cooking, excluded.cooking),
+            alchemy = greatest(nfts.alchemy, excluded.alchemy),
+            construction = greatest(nfts.construction, excluded.construction),
             last_arweave_uri = coalesce(excluded.last_arweave_uri, nfts.last_arweave_uri),
             last_update_sig = coalesce(excluded.last_update_sig, nfts.last_update_sig),
             updated_at = excluded.updated_at,
@@ -669,8 +677,8 @@ export class NftColumns {
         `
         const values = [
           assetId, playerPda, merged.name, (merged as any).level, totals.combat_level, totals.total_level, merged.version,
-          (merged as any).att, (merged as any).str, (merged as any).def, (merged as any).mag, (merged as any).pro,
-          (merged as any).vit, (merged as any).cra, (merged as any).luc, (merged as any).mining, (merged as any).woodcutting, (merged as any).fishing, (merged as any).farming, (merged as any).hunting, (merged as any).smithing, (merged as any).cooking, (merged as any).alchemy, (merged as any).construction,
+          (merged as any).attack, (merged as any).strength, (merged as any).defense, (merged as any).magic, (merged as any).projectiles,
+          (merged as any).vitality, (merged as any).crafting, (merged as any).luck, (merged as any).mining, (merged as any).woodcutting, (merged as any).fishing, (merged as any).farming, (merged as any).hunting, (merged as any).smithing, (merged as any).cooking, (merged as any).alchemy, (merged as any).construction,
           row.last_arweave_uri, row.last_update_sig, row.updated_at
         ]
         const { rows } = await client.query(sql, values)
@@ -720,7 +728,7 @@ export class NftColumns {
           const sql = `
             insert into nfts (
               asset_id, player_pda, name, combat_level, total_level, version,
-              att, str, def, mag, pro, vit, cra, luc, mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction,
+              attack, strength, defense, magic, projectiles, vitality, crafting, luck, mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction,
               last_arweave_uri, last_update_sig, updated_at
             ) values (
               $1,$2,$3,$4,$5,$6,
@@ -732,15 +740,23 @@ export class NftColumns {
               combat_level = excluded.combat_level,
               total_level = excluded.total_level,
               version = excluded.version,
-              att = excluded.att,
-              str = excluded.str,
-              def = excluded.def,
-              mag = excluded.mag,
-              pro = excluded.pro,
-              vit = excluded.vit,
-              cra = excluded.cra,
-              luc = excluded.luc,
-              mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction = excluded.mining, woodcutting, fishing, farming, hunting, smithing, cooking, alchemy, construction,
+              attack = excluded.attack,
+              strength = excluded.strength,
+              defense = excluded.defense,
+              magic = excluded.magic,
+              projectiles = excluded.projectiles,
+              vitality = excluded.vitality,
+              crafting = excluded.crafting,
+              luck = excluded.luck,
+              mining = excluded.mining,
+              woodcutting = excluded.woodcutting,
+              fishing = excluded.fishing,
+              farming = excluded.farming,
+              hunting = excluded.hunting,
+              smithing = excluded.smithing,
+              cooking = excluded.cooking,
+              alchemy = excluded.alchemy,
+              construction = excluded.construction,
               last_arweave_uri = excluded.last_arweave_uri,
               last_update_sig = excluded.last_update_sig,
               updated_at = excluded.updated_at,
@@ -749,7 +765,7 @@ export class NftColumns {
           `
           const values = [
             assetId, playerPda, cols.name, totals.combat_level, totals.total_level, cols.version,
-            cols.att, cols.str, cols.def, cols.mag, cols.pro, cols.vit, cols.cra, cols.luc, cols.mining, cols.woodcutting, cols.fishing, cols.farming, cols.hunting, cols.smithing, cols.cooking, cols.alchemy, cols.construction,
+            cols.attack, cols.strength, cols.defense, cols.magic, cols.projectiles, cols.vitality, cols.crafting, cols.luck, cols.mining, cols.woodcutting, cols.fishing, cols.farming, cols.hunting, cols.smithing, cols.cooking, cols.alchemy, cols.construction,
             lastUri ?? null, lastSig ?? null, nowIso
           ]
           const { rows } = await client.query(sql, values)
@@ -783,7 +799,7 @@ export class NftColumns {
         console.error('❌ [NftColumns.upsertFromStats] upsert error:', error)
         return null
       }
-      console.log(`✅ [NftColumns.upsertFromStats] saved assetId=${assetId} name=${cols.name} att=${cols.att} str=${cols.str} def=${cols.def}`)
+      console.log(`✅ [NftColumns.upsertFromStats] saved assetId=${assetId} name=${cols.name} attack=${cols.attack} strength=${cols.strength} defense=${cols.defense}`)
       return data as NftColumnsRow
     } catch (e) {
       console.error('❌ [NftColumns.upsertFromStats] exception:', e)
@@ -799,7 +815,7 @@ export class NftColumns {
     const existing = await this.get(assetId)
     if (!existing) return null
     const map: Record<string, keyof NftColumnsRow> = {
-      attack: 'att', strength: 'str', defense: 'def', magic: 'mag', projectiles: 'pro', vitality: 'vit', crafting: 'cra', luck: 'luc', 
+      attack: 'attack', strength: 'strength', defense: 'defense', magic: 'magic', projectiles: 'projectiles', vitality: 'vitality', crafting: 'crafting', luck: 'luck', 
       mining: 'mining', woodcutting: 'woodcutting', fishing: 'fishing', farming: 'farming', hunting: 'hunting', 
       smithing: 'smithing', cooking: 'cooking', alchemy: 'alchemy', construction: 'construction'
     }

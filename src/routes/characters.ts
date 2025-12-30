@@ -48,12 +48,25 @@ const XP_ACTION_RULES = {
   enemy_kill_magic: { skill: 'magic', baseXp: 25 },
   enemy_kill_ranged: { skill: 'projectiles', baseXp: 25 },
   boss_kill: { skill: 'attack', baseXp: 500 },
-  gather_resource: { skill: 'gathering', baseXp: 15 },
   craft_item_common: { skill: 'crafting', baseXp: 40 },
   craft_item_rare: { skill: 'crafting', baseXp: 120 },
   complete_dungeon: { skill: 'vitality', baseXp: 300 },
   perfect_clear: { skill: 'defense', baseXp: 200 },
   luck_find: { skill: 'luck', baseXp: 30 },
+  // Gathering Skills (XP per tree cut down, not per chop)
+  woodcut_tree_basic: { skill: 'woodcutting', baseXp: 75 },   // Small trees: 75 XP per tree
+  woodcut_tree_medium: { skill: 'woodcutting', baseXp: 125 }, // Medium trees: 125 XP per tree
+  woodcut_tree_hard: { skill: 'woodcutting', baseXp: 200 },  // Large trees: 200 XP per tree
+  // Mining (XP per stone/ore mined, not per hit)
+  mine_ore_basic: { skill: 'mining', baseXp: 75 },   // Small stones: 75 XP per stone
+  mine_ore_medium: { skill: 'mining', baseXp: 125 }, // Medium stones: 125 XP per stone
+  mine_ore_hard: { skill: 'mining', baseXp: 200 },  // Large stones/ores: 200 XP per stone
+  fish_basic: { skill: 'fishing', baseXp: 15 },
+  fish_medium: { skill: 'fishing', baseXp: 20 },
+  fish_hard: { skill: 'fishing', baseXp: 25 },
+  farm_harvest: { skill: 'farming', baseXp: 15 },
+  hunt_basic: { skill: 'hunting', baseXp: 20 },
+  hunt_medium: { skill: 'hunting', baseXp: 30 },
 } as const
 type XpActionKey = keyof typeof XP_ACTION_RULES
 
@@ -146,7 +159,7 @@ const TrainSkillSchema = z.object({
 });
 
 const AddSkillXpSchema = z.object({
-  assetId: z.string(),
+  assetId: z.string().optional(), // Optional because it can come from path param
   skillName: z.enum([
     // Combat Skills
     'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
@@ -168,7 +181,29 @@ const AddSkillXpSchema = z.object({
 
 const AwardActionSchema = z.object({
   assetId: z.string(),
-  actionKey: z.enum(Object.keys(XP_ACTION_RULES) as [XpActionKey, ...XpActionKey[]]),
+  actionKey: z.enum([
+    'enemy_kill_basic',
+    'enemy_kill_magic',
+    'enemy_kill_ranged',
+    'boss_kill',
+    'craft_item_common',
+    'craft_item_rare',
+    'complete_dungeon',
+    'perfect_clear',
+    'luck_find',
+    'woodcut_tree_basic',
+    'woodcut_tree_medium',
+    'woodcut_tree_hard',
+    'mine_ore_basic',
+    'mine_ore_medium',
+    'mine_ore_hard',
+    'fish_basic',
+    'fish_medium',
+    'fish_hard',
+    'farm_harvest',
+    'hunt_basic',
+    'hunt_medium',
+  ] as [string, ...string[]]),
   quantity: z.number().int().positive().optional(),
   difficultyMultiplier: z.number().positive().optional(),
   playerPDA: z.string().optional(),
@@ -176,6 +211,33 @@ const AwardActionSchema = z.object({
   gameMode: z.string().optional(),
   idempotencyKey: z.string().optional(),
 })
+
+// Helper to authenticate user from Supabase auth header
+async function authenticateUser(req: any): Promise<{ userId: string; profile: any }> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new Error('Unauthorized - missing or invalid auth header');
+  }
+
+  const token = authHeader.substring(7);
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  
+  if (error || !user) {
+    throw new Error('Unauthorized - invalid token');
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profile) {
+    throw new Error('Profile not found');
+  }
+
+  return { userId: user.id, profile };
+}
 
 // --- Security helpers ---
 function hasValidApiKey(req: any): boolean {
@@ -582,6 +644,80 @@ router.post('/update-cnft-metadata', async (req: any, res: any) => {
   }
 });
 
+// GET /api/characters/:assetId/skills - Get skill levels for a character
+router.get('/:assetId/skills', async (req: any, res: any) => {
+  try {
+    const { assetId } = req.params
+    
+    // Get all skill XP from database
+    const skillXp = await getAllSkillXp(assetId)
+    const skills: any[] = []
+    
+    // Convert to array format expected by client
+    for (const [skillName, data] of Object.entries(skillXp)) {
+      const prog = computeProgress((data as any).experience)
+      skills.push({
+        skill: skillName,
+        level: (data as any).level ?? prog.level,
+        experience: (data as any).experience,
+        xpForCurrentLevel: prog.xpForCurrentLevel,
+        xpForNextLevel: prog.xpForNextLevel,
+        progressPct: prog.progressPct
+      })
+    }
+    
+    return res.json({ success: true, skills })
+  } catch (error) {
+    console.error('❌ Get skills error:', error)
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch skills'
+    })
+  }
+})
+
+// POST /api/characters/:assetId/add-skill-xp - Add XP to a character's skill (assetId in path)
+router.post('/:assetId/add-skill-xp', async (req: any, res: any) => {
+  try {
+    // Require server-to-server key for direct XP grants
+    if (!hasValidApiKey(req)) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' })
+    }
+    
+    const { assetId } = req.params
+    // assetId comes from path param, so omit it from schema validation
+    const { skillName, xpGain, playerPDA, source, sessionId, gameMode, additionalData, idempotencyKey } = AddSkillXpSchema.omit({ assetId: true }).parse(req.body)
+    
+    await assertAssetOwnedByPda(assetId, playerPDA)
+    const result = await addSkillXp(assetId, skillName, xpGain, { idempotencyKey, playerPDA, source, sessionId, gameMode, additionalData })
+
+    // Immediate on-chain metadata update on level-up (cost-effective)
+    let metadataUpdated = false
+    let signature: string | undefined
+    if (result.leveledUp) {
+      try {
+        const row = await NftColumns.get(assetId)
+        if (row) {
+          const stats = NftColumns.columnsToStats(row)
+          const upd = await updateCharacterCNFT(assetId, stats, playerPDA)
+          if (upd.success) {
+            metadataUpdated = true
+            signature = upd.signature
+            await markAssetSynced(assetId)
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Immediate metadata update failed; background worker will retry', e)
+      }
+    }
+
+    return res.json({ success: true, ...result, metadataUpdated, signature })
+  } catch (error) {
+    console.error('❌ Add skill XP error:', error)
+    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' })
+  }
+})
+
 // GET /api/characters/:assetId
 router.get('/:assetId', async (req: any, res: any) => {
   try {
@@ -618,6 +754,8 @@ router.get('/:assetId', async (req: any, res: any) => {
         const skillXp = await getAllSkillXp(assetId)
         const skills = character.characterStats?.skills || {}
         const enriched: any = {}
+        const skillExperience: any = {}
+        
         for (const key of Object.keys(skills)) {
           const k = key as keyof typeof skills
           const rec: any = (skillXp as any)[k]
@@ -630,9 +768,22 @@ router.get('/:assetId', async (req: any, res: any) => {
               xpForNextLevel: prog.xpForNextLevel,
               progressPct: prog.progressPct,
             }
+            // Also populate skillExperience collection for Unity
+            skillExperience[k] = rec.experience
+          } else {
+            // If no XP record, use experience from skills object or default to 0
+            skillExperience[k] = skills[k]?.experience ?? 0
           }
         }
-        character = { ...character, characterStats: { ...character.characterStats, skills: { ...character.characterStats.skills, ...enriched } } }
+        
+        character = { 
+          ...character, 
+          characterStats: { 
+            ...character.characterStats, 
+            skills: { ...character.characterStats.skills, ...enriched },
+            skillExperience: skillExperience
+          } 
+        }
       } catch {}
       return res.json({ success: true, character });
     }
@@ -838,7 +989,9 @@ router.post('/add-skill-xp', async (req: any, res: any) => {
     if (!hasValidApiKey(req)) {
       return res.status(401).json({ success: false, error: 'Unauthorized' })
     }
-    const { assetId, skillName, xpGain, playerPDA, source, sessionId, gameMode, additionalData, idempotencyKey } = AddSkillXpSchema.parse(req.body)
+    // For this route, assetId is required in body
+    const bodySchema = AddSkillXpSchema.extend({ assetId: z.string() })
+    const { assetId, skillName, xpGain, playerPDA, source, sessionId, gameMode, additionalData, idempotencyKey } = bodySchema.parse(req.body)
     await assertAssetOwnedByPda(assetId, playerPDA)
     const result = await addSkillXp(assetId, skillName, xpGain, { idempotencyKey, playerPDA, source, sessionId, gameMode, additionalData })
 
@@ -873,24 +1026,42 @@ router.post('/add-skill-xp', async (req: any, res: any) => {
 router.post('/award-action', async (req: any, res: any) => {
   try {
     const { assetId, actionKey, quantity, difficultyMultiplier, playerPDA, sessionId, gameMode, idempotencyKey } = AwardActionSchema.parse(req.body)
-    // Allow either API key OR HMAC-signed request for client-facing calls
-    const ts = String(req.get('x-xp-timestamp') || '')
-    const sig = req.get('x-xp-signature') || ''
-    const now = Date.now()
-    const withinWindow = ts && Math.abs(now - Number(ts)) < 60_000 // 60s
-    const basePayload = `${assetId}|${actionKey}|${Math.max(1, Math.floor(quantity || 1))}|${Number(difficultyMultiplier || 1)}|${ts}`
-    const signedOk = withinWindow && verifyHmacSignature(basePayload, sig)
-    if (!hasValidApiKey(req) && !signedOk) {
-      return res.status(401).json({ success: false, error: 'Unauthorized' })
+    
+    // Authentication: Allow Bearer token (Unity client), API key, or HMAC (server-to-server)
+    let authenticatedUser: { userId: string; profile: any } | null = null
+    let verifiedPDA: string | null = null
+    
+    try {
+      // Try Bearer token authentication first (for Unity clients)
+      authenticatedUser = await authenticateUser(req)
+      verifiedPDA = authenticatedUser.profile.player_pda
+    } catch (authError) {
+      // Fall back to API key or HMAC for server-to-server calls
+      const ts = String(req.get('x-xp-timestamp') || '')
+      const sig = req.get('x-xp-signature') || ''
+      const now = Date.now()
+      const withinWindow = ts && Math.abs(now - Number(ts)) < 60_000 // 60s
+      const basePayload = `${assetId}|${actionKey}|${Math.max(1, Math.floor(quantity || 1))}|${Number(difficultyMultiplier || 1)}|${ts}`
+      const signedOk = withinWindow && verifyHmacSignature(basePayload, sig)
+      
+      if (!hasValidApiKey(req) && !signedOk) {
+        return res.status(401).json({ success: false, error: 'Unauthorized - requires Bearer token, API key, or valid HMAC signature' })
+      }
+      
+      // For server-to-server, use provided playerPDA or verify from asset
+      verifiedPDA = playerPDA || null
     }
-    await assertAssetOwnedByPda(assetId, playerPDA)
-    const rule = XP_ACTION_RULES[actionKey]
+    
+    // Verify asset ownership
+    await assertAssetOwnedByPda(assetId, verifiedPDA || playerPDA)
+    const rule = XP_ACTION_RULES[actionKey as XpActionKey]
     const base = rule.baseXp
     const qty = Math.max(1, Math.floor(quantity || 1))
     const diff = Math.max(0.1, Math.min(10, Number(difficultyMultiplier || 1)))
     const xpGain = Math.max(1, Math.floor(base * qty * diff))
     const source = `action:${actionKey}`
-    const result = await addSkillXp(assetId, rule.skill as any, xpGain, { idempotencyKey, playerPDA, source, sessionId, gameMode, additionalData: { qty, diff } })
+    const finalPlayerPDA = verifiedPDA || playerPDA
+    const result = await addSkillXp(assetId, rule.skill as any, xpGain, { idempotencyKey, playerPDA: finalPlayerPDA, source, sessionId, gameMode, additionalData: { qty, diff } })
     return res.json({ success: true, rule: { actionKey, skill: rule.skill, baseXp: rule.baseXp }, computed: { xpGain, qty, diff }, ...result })
   } catch (error) {
     console.error('❌ Award action error:', error)
@@ -900,7 +1071,7 @@ router.post('/award-action', async (req: any, res: any) => {
 
 // GET /api/characters/xp-actions (for client introspection/debug)
 router.get('/xp-actions/list', async (_req: any, res: any) => {
-  res.json({ success: true, actions: XP_ACTION_RULES })
+  res.json({ success: true, actions: XP_ACTION_RULES as Record<string, { skill: string; baseXp: number }> })
 })
 
 // POST /api/characters/level-up-stat - DEPRECATED (stats system removed)

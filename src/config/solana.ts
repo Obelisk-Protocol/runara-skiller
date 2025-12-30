@@ -2,6 +2,7 @@ import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { mplBubblegum } from '@metaplex-foundation/mpl-bubblegum';
 import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { createSignerFromKeypair, signerIdentity } from '@metaplex-foundation/umi';
+import { PublicKey } from '@solana/web3.js';
 
 export type ClusterEnv = 'devnet' | 'mainnet-beta'
 
@@ -21,9 +22,48 @@ export function getRpcUrl(): string {
   return process.env.SOLANA_RPC_URL_DEVNET || 'https://api.devnet.solana.com'
 }
 
+export function getObxMint(): PublicKey {
+  const cluster = getCluster()
+  const candidate =
+    cluster === 'mainnet-beta'
+      ? process.env.OBX_MINT_MAINNET
+      : process.env.OBX_MINT_DEVNET
+
+  if (!candidate) {
+    throw new Error('OBX mint not configured for selected cluster')
+  }
+  return new PublicKey(candidate)
+}
+
+export function getCobxMint(): PublicKey {
+  const cluster = getCluster()
+  const candidate =
+    cluster === 'mainnet-beta'
+      ? process.env.COBX_MINT_MAINNET
+      : process.env.COBX_MINT_DEVNET
+
+  if (!candidate) {
+    throw new Error('cOBX mint not configured for selected cluster')
+  }
+  return new PublicKey(candidate)
+}
+
 export function getDasUrl(): string {
+  // Explicit DAS URL takes priority
   const explicit = process.env.DAS_RPC_URL
   if (explicit && explicit.trim().length > 0) return explicit
+  
+  // If HELIUS_API_KEY is set, use Helius DAS endpoint
+  const heliusKey = process.env.HELIUS_API_KEY || process.env.SOLANA_RPC_URL?.match(/api-key=([^&]+)/)?.[1]
+  if (heliusKey) {
+    const c = getCluster()
+    if (c === 'mainnet-beta') {
+      return `https://mainnet.helius-rpc.com/?api-key=${heliusKey}`
+    }
+    return `https://devnet.helius-rpc.com/?api-key=${heliusKey}`
+  }
+  
+  // Fallback to cluster-specific DAS URLs
   const c = getCluster()
   if (c === 'mainnet-beta') {
     return process.env.DAS_RPC_URL_MAINNET || ''

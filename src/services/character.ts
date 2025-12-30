@@ -128,14 +128,14 @@ export class CharacterService {
       const dbRow = await NftColumns.get(assetId);
       const dbLevelMap: Partial<Record<keyof CharacterStats['skills'], number>> | null = dbRow
         ? {
-            attack: dbRow.att,
-            strength: dbRow.str,
-            defense: dbRow.def,
-            magic: dbRow.mag,
-            projectiles: dbRow.pro,
-            vitality: dbRow.vit,
-            crafting: dbRow.cra,
-            luck: dbRow.luc,
+            attack: dbRow.attack,
+            strength: dbRow.strength,
+            defense: dbRow.defense,
+            magic: dbRow.magic,
+            projectiles: dbRow.projectiles,
+            vitality: dbRow.vitality,
+            crafting: dbRow.crafting,
+            luck: dbRow.luck,
             mining: dbRow.mining,
             woodcutting: dbRow.woodcutting,
             fishing: dbRow.fishing,
