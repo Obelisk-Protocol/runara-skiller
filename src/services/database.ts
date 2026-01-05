@@ -72,7 +72,7 @@ export class SkillDatabase {
   // Add experience to skill
   static async addSkillExperience(
     playerPda: string,
-    skill: 'combat' | 'magic' | 'crafting' | 'exploration' | 'gambling',
+    skill: 'attack' | 'strength' | 'defense' | 'magic' | 'projectiles' | 'vitality' | 'mining' | 'woodcutting' | 'fishing' | 'farming' | 'hunting' | 'smithing' | 'crafting' | 'cooking' | 'alchemy' | 'construction' | 'luck',
     experienceGain: number,
     source?: string,
     sessionId?: string,
@@ -132,7 +132,7 @@ export class SkillDatabase {
   // Log experience gain
   static async logExperienceGain(
     playerPda: string,
-    skill: 'combat' | 'magic' | 'crafting' | 'exploration' | 'gambling',
+    skill: 'attack' | 'strength' | 'defense' | 'magic' | 'projectiles' | 'vitality' | 'mining' | 'woodcutting' | 'fishing' | 'farming' | 'hunting' | 'smithing' | 'crafting' | 'cooking' | 'alchemy' | 'construction' | 'luck',
     experienceGain: number,
     source?: string,
     sessionId?: string,
@@ -140,15 +140,24 @@ export class SkillDatabase {
     additionalData?: any
   ): Promise<boolean> {
     try {
-      const logData = {
+      // Validate UUID format for session_id (database requires UUID or null)
+      // UUID format: 8-4-4-4-12 hexadecimal digits
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const validSessionId = sessionId && uuidRegex.test(sessionId) ? sessionId : null;
+      
+      const logData: any = {
         player_pda: playerPda,
         skill,
         experience_gain: experienceGain,
         source,
-        session_id: sessionId,
         game_mode: gameMode,
         additional_data: additionalData
       };
+      
+      // Only include session_id if it's a valid UUID
+      if (validSessionId) {
+        logData.session_id = validSessionId;
+      }
 
       const { error } = await supabase
         .from('experience_logs')

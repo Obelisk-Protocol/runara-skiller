@@ -1,16 +1,27 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { SkillDatabase } from '../services/database';
+import { addSkillXp } from '../services/nft-skill-experience';
+import { supabase } from '../config/database';
 
 const router = Router();
 
 // Validation schemas
 const addExperienceSchema = z.object({
   playerPDA: z.string().min(32).max(44),
-  skill: z.enum(['combat', 'magic', 'crafting', 'exploration', 'gambling']),
+  skill: z.enum([
+    // Combat Skills
+    'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
+    // Gathering Skills
+    'mining', 'woodcutting', 'fishing', 'farming', 'hunting',
+    // Crafting Skills
+    'smithing', 'crafting', 'cooking', 'alchemy', 'construction',
+    // Unique Skills
+    'luck'
+  ]),
   experienceGain: z.number().min(1).max(1000000),
   source: z.string().optional(),
-  sessionId: z.string().uuid().optional(),
+  sessionId: z.string().optional(),
   gameMode: z.string().optional(),
   additionalData: z.any().optional()
 });
@@ -63,6 +74,7 @@ router.post('/add-experience', async (req: any, res: any) => {
     
     console.log('📈 Adding skill experience:', validatedData);
     
+    // Update player_skill_experience table (legacy support)
     const success = await SkillDatabase.addSkillExperience(
       validatedData.playerPDA,
       validatedData.skill,
@@ -72,6 +84,66 @@ router.post('/add-experience', async (req: any, res: any) => {
       validatedData.gameMode,
       validatedData.additionalData
     );
+    
+    // ALSO update nft_skill_experience table (what the game actually reads from)
+    // Look up the active character's assetId from the profiles table
+    // Note: playerPDA might be a UUID (user id) or a Solana address, so try both
+    try {
+      console.log(`🔍 [Skills] Looking up profile for playerPDA: ${validatedData.playerPDA}`);
+      
+      // Try by player_pda first (Solana address), then fall back to id (UUID)
+      let { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot, player_pda')
+        .eq('player_pda', validatedData.playerPDA)
+        .single();
+      
+      if (profileError || !profile) {
+        console.log(`🔍 [Skills] Not found by player_pda, trying by id (UUID)...`);
+        const altResult = await supabase
+          .from('profiles')
+          .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot, player_pda')
+          .eq('id', validatedData.playerPDA)
+          .single();
+        profile = altResult.data as any;
+        profileError = altResult.error as any;
+      }
+      
+      if (profileError) {
+        console.warn(`⚠️ [Skills] Profile lookup error for ${validatedData.playerPDA}:`, profileError);
+      } else if (!profile) {
+        console.warn(`⚠️ [Skills] No profile found for playerPDA: ${validatedData.playerPDA}`);
+      } else if (!profile.active_character_slot) {
+        console.warn(`⚠️ [Skills] No active_character_slot for playerPDA: ${validatedData.playerPDA}`);
+      } else {
+        const assetId = (profile as any)[`character_cnft_${profile.active_character_slot}`];
+        const actualPlayerPDA = profile.player_pda || validatedData.playerPDA;
+        console.log(`🔍 [Skills] Found active character slot ${profile.active_character_slot}, assetId: ${assetId}, actual playerPDA: ${actualPlayerPDA}`);
+        
+        if (assetId) {
+          console.log(`🔄 [Skills] Calling addSkillXp for assetId ${assetId}, skill ${validatedData.skill}, XP ${validatedData.experienceGain}`);
+          // Update nft_skill_experience table using addSkillXp (what the game reads from)
+          const addSkillResult = await addSkillXp(
+            assetId,
+            validatedData.skill as any,
+            validatedData.experienceGain,
+            {
+              playerPDA: actualPlayerPDA, // Use the actual Solana PDA if available
+              source: validatedData.source,
+              sessionId: validatedData.sessionId,
+              gameMode: validatedData.gameMode,
+              additionalData: validatedData.additionalData
+            }
+          );
+          console.log(`✅ [Skills] Updated nft_skill_experience for assetId ${assetId}. Leveled up: ${addSkillResult.leveledUp}, New level: ${addSkillResult.level}`);
+        } else {
+          console.warn(`⚠️ [Skills] No assetId found for slot ${profile.active_character_slot} for playerPDA: ${validatedData.playerPDA}`);
+        }
+      }
+    } catch (nftError) {
+      // Don't fail the request if nft_skill_experience update fails
+      console.error('❌ [Skills] Failed to update nft_skill_experience (non-fatal):', nftError);
+    }
     
     if (success) {
       // Get updated skill data

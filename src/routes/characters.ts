@@ -691,27 +691,33 @@ router.post('/:assetId/add-skill-xp', async (req: any, res: any) => {
     await assertAssetOwnedByPda(assetId, playerPDA)
     const result = await addSkillXp(assetId, skillName, xpGain, { idempotencyKey, playerPDA, source, sessionId, gameMode, additionalData })
 
-    // Immediate on-chain metadata update on level-up (cost-effective)
-    let metadataUpdated = false
-    let signature: string | undefined
-    if (result.leveledUp) {
-      try {
-        const row = await NftColumns.get(assetId)
-        if (row) {
-          const stats = NftColumns.columnsToStats(row)
-          const upd = await updateCharacterCNFT(assetId, stats, playerPDA)
-          if (upd.success) {
-            metadataUpdated = true
-            signature = upd.signature
-            await markAssetSynced(assetId)
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ Immediate metadata update failed; background worker will retry', e)
-      }
-    }
+    // Return immediately - don't block on on-chain update
+    // On-chain metadata update happens in background for better UX
+    res.json({ success: true, ...result, metadataUpdated: false, signature: undefined })
 
-    return res.json({ success: true, ...result, metadataUpdated, signature })
+    // Fire-and-forget on-chain metadata update on level-up (non-blocking)
+    if (result.leveledUp) {
+      // Don't await - let it happen in background
+      Promise.resolve().then(async () => {
+        try {
+          const row = await NftColumns.get(assetId)
+          if (row) {
+            const stats = NftColumns.columnsToStats(row)
+            const upd = await updateCharacterCNFT(assetId, stats, playerPDA)
+            if (upd.success) {
+              await markAssetSynced(assetId)
+              console.log(`✅ Background metadata update completed for ${assetId}: ${upd.signature}`)
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Background metadata update failed; background worker will retry', e)
+        }
+      }).catch(err => {
+        console.error('❌ Background metadata update error:', err)
+      })
+    }
+    
+    return
   } catch (error) {
     console.error('❌ Add skill XP error:', error)
     return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' })
@@ -995,27 +1001,31 @@ router.post('/add-skill-xp', async (req: any, res: any) => {
     await assertAssetOwnedByPda(assetId, playerPDA)
     const result = await addSkillXp(assetId, skillName, xpGain, { idempotencyKey, playerPDA, source, sessionId, gameMode, additionalData })
 
-    // Immediate on-chain metadata update on level-up (cost-effective)
-    let metadataUpdated = false
-    let signature: string | undefined
-    if (result.leveledUp) {
-      try {
-        const row = await NftColumns.get(assetId)
-        if (row) {
-          const stats = NftColumns.columnsToStats(row)
-          const upd = await updateCharacterCNFT(assetId, stats, playerPDA)
-          if (upd.success) {
-            metadataUpdated = true
-            signature = upd.signature
-            await markAssetSynced(assetId)
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ Immediate metadata update failed; background worker will retry', e)
-      }
-    }
+    // Return immediately - don't block on on-chain update
+    // On-chain metadata update happens in background for better UX
+    res.json({ success: true, ...result, metadataUpdated: false, signature: undefined })
 
-    return res.json({ success: true, ...result, metadataUpdated, signature })
+    // Fire-and-forget on-chain metadata update on level-up (non-blocking)
+    if (result.leveledUp) {
+      // Don't await - let it happen in background
+      Promise.resolve().then(async () => {
+        try {
+          const row = await NftColumns.get(assetId)
+          if (row) {
+            const stats = NftColumns.columnsToStats(row)
+            const upd = await updateCharacterCNFT(assetId, stats, playerPDA)
+            if (upd.success) {
+              await markAssetSynced(assetId)
+              console.log(`✅ Background metadata update completed for ${assetId}: ${upd.signature}`)
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Background metadata update failed; background worker will retry', e)
+        }
+      }).catch(err => {
+        console.error('❌ Background metadata update error:', err)
+      })
+    }
   } catch (error) {
     console.error('❌ Add skill XP error:', error)
     return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' })

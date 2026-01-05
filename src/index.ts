@@ -20,6 +20,7 @@ import slotRoutes from './routes/slots';
 import cobxRoutes from './routes/cobx';
 import marketplaceRoutes from './routes/marketplace';
 import playersRoutes from './routes/players';
+import itemRoutes from './routes/items';
 
 // Load environment variables
 dotenv.config();
@@ -103,6 +104,7 @@ app.use('/api/character-cnft-slots', slotRoutes);
 app.use('/api/cobx', cobxRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/players', playersRoutes);
+app.use('/api/items', itemRoutes);
 
 // Root endpoint
 app.get('/', (req: any, res: any) => {

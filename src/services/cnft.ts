@@ -432,16 +432,27 @@ export async function updateCharacterCNFT(
           }
           return String(rawSig || '');
         } catch (error: any) {
-          console.error(`❌ Transaction attempt ${i + 1} failed:`, error.message);
+          const errorMsg = error.message || String(error);
+          console.error(`❌ Transaction attempt ${i + 1} failed:`, errorMsg);
           
-          // Check if it's a stale proof error (like working route)
-          if (error.message?.includes('Invalid root recomputed from proof') && i < retries - 1) {
-            console.log('🔄 Detected stale proof, refetching asset and retrying...');
+          // Check for various recoverable errors that require refetching proof/blockhash
+          const isStaleProof = errorMsg?.includes('Invalid root recomputed from proof') || 
+                               errorMsg?.includes('leaf value does not match') ||
+                               errorMsg?.includes('current leaf value does not match');
+          const isBlockhashExpired = errorMsg?.includes('Blockhash not found') ||
+                                     errorMsg?.includes('blockhash not found');
+          
+          if ((isStaleProof || isBlockhashExpired) && i < retries - 1) {
+            if (isStaleProof) {
+              console.log('🔄 Detected stale merkle tree proof, refetching asset and retrying...');
+            } else {
+              console.log('🔄 Detected expired blockhash, refetching asset and rebuilding transaction...');
+            }
             
-            // Refetch the asset with fresh proof
+            // Refetch the asset with fresh proof and blockhash
             assetWithProof = await fetchAssetWithRetry();
             
-            // Rebuild the transaction with fresh proof
+            // Rebuild the transaction with fresh proof and blockhash
             updateTx = updateMetadata(umiWithBubblegum, {
               ...assetWithProof,
               leafOwner: leafOwner,
@@ -450,8 +461,9 @@ export async function updateCharacterCNFT(
               collectionMint: publicKey(COLLECTION_MINT)
             });
             
-            // Wait before retry
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Wait before retry (longer for blockhash issues)
+            const waitTime = isBlockhashExpired ? 3000 : 2000;
+            await new Promise(resolve => setTimeout(resolve, waitTime));
             continue;
           }
           
