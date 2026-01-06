@@ -23,7 +23,6 @@ export interface CharacterStats {
     mining: SkillData;
     woodcutting: SkillData;
     fishing: SkillData;
-    farming: SkillData;
     hunting: SkillData;
     // Crafting Skills
     smithing: SkillData;
@@ -46,7 +45,6 @@ export interface CharacterStats {
     mining: number;
     woodcutting: number;
     fishing: number;
-    farming: number;
     hunting: number;
     // Crafting Skills
     smithing: number;
@@ -94,16 +92,12 @@ export interface DatabaseCharacter {
 // Skill tracking types
 export interface PlayerSkillExperience {
   player_pda: string;
-  combat_xp: number;
+  // Legacy columns removed: combat_xp, exploration_xp, gambling_xp, combat_level, exploration_level, gambling_level
+  // These are no longer used - new system uses 18 skills (attack, strength, defense, etc.)
   magic_xp: number;
   crafting_xp: number;
-  exploration_xp: number;
-  gambling_xp: number;
-  combat_level: number;
   magic_level: number;
   crafting_level: number;
-  exploration_level: number;
-  gambling_level: number;
   last_onchain_sync: string;
   pending_onchain_update: boolean;
   created_at: string;

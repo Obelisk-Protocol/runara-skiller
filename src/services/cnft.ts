@@ -21,6 +21,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { umi, serverSigner, COLLECTION_MINT, MERKLE_TREE, getDasUrl, getRpcUrl } from '../config/solana';
 import { CharacterStats, Character } from '../types/character';
 import { uploadJsonToArweave } from './storage';
+import { NftColumns } from './database';
 
 // Resolve default character image URL
 function resolveDefaultCharacterImageUrl(seedName?: string): string {
@@ -53,7 +54,7 @@ function resolveDefaultCharacterImageUrl(seedName?: string): string {
 export function generateDefaultCharacterStats(name: string): CharacterStats {
   return {
     name,
-    combatLevel: 3, // Default combat level (Attack + Strength + Defense)
+    combatLevel: 1, // Default combat level (average of Attack, Strength, Defense, Magic, Projectiles, Vitality = (1+1+1+1+1+1)/6 = 1)
     totalLevel: 18, // Default total level (all 18 skills at 1)
     version: '2.0.0',
     experience: 0,
@@ -69,7 +70,6 @@ export function generateDefaultCharacterStats(name: string): CharacterStats {
       mining: { level: 1, experience: 0 },
       woodcutting: { level: 1, experience: 0 },
       fishing: { level: 1, experience: 0 },
-      farming: { level: 1, experience: 0 },
       hunting: { level: 1, experience: 0 },
       // Crafting Skills
       smithing: { level: 1, experience: 0 },
@@ -92,7 +92,6 @@ export function generateDefaultCharacterStats(name: string): CharacterStats {
       mining: 0,
       woodcutting: 0,
       fishing: 0,
-      farming: 0,
       hunting: 0,
       // Crafting Skills
       smithing: 0,
@@ -194,14 +193,14 @@ export async function createCharacterCNFT(
     const imageUrl = resolveDefaultCharacterImageUrl(characterName)
     console.log('[IMG] createCharacterCNFT imageUrl', imageUrl)
     const jsonPayload = {
-      name: `${characterName} (Combat ${characterStats.combatLevel})`,
+      name: characterName, // Just the character name, no level suffix
       symbol: 'PLAYER',
       description: `Character with ${characterStats.totalLevel} total skill levels`,
       image: imageUrl,
       external_url: 'https://obeliskparadox.com',
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
-        { trait_type: 'Combat Level', value: characterStats.combatLevel.toString() },
+        { trait_type: 'Level', value: characterStats.combatLevel.toString() }, // Changed from "Combat Level" to "Level"
         { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
         { trait_type: 'Attack', value: characterStats.skills.attack.level.toString() },
         { trait_type: 'Strength', value: characterStats.skills.strength.level.toString() },
@@ -214,7 +213,6 @@ export async function createCharacterCNFT(
         { trait_type: 'Mining', value: characterStats.skills.mining.level.toString() },
         { trait_type: 'Woodcutting', value: characterStats.skills.woodcutting.level.toString() },
         { trait_type: 'Fishing', value: characterStats.skills.fishing.level.toString() },
-        { trait_type: 'Farming', value: characterStats.skills.farming.level.toString() },
         { trait_type: 'Hunting', value: characterStats.skills.hunting.level.toString() },
         { trait_type: 'Smithing', value: characterStats.skills.smithing.level.toString() },
         { trait_type: 'Cooking', value: characterStats.skills.cooking.level.toString() },
@@ -229,7 +227,7 @@ export async function createCharacterCNFT(
     console.log('[IMG] createCharacterCNFT metadataUri', metadataUri)
     
     // Build Metaplex standard metadata (exactly like frontend)
-    const displayName = `${characterName} (Combat ${characterStats.combatLevel})`;
+    const displayName = characterName; // Just the character name, no level suffix
     
     const metadata = {
       name: displayName,
@@ -302,13 +300,229 @@ export async function createCharacterCNFT(
   }
 }
 
+// Update ONLY the name field of a cNFT (separate transaction to avoid size limits)
+// This is called when name changes, separate from URI updates
+export async function updateCNFTNameOnly(
+  assetId: string,
+  name: string,
+  playerPDA?: string
+): Promise<{ success: boolean; signature?: string; error?: string }> {
+  try {
+    // CRITICAL: Fetch current combat level to format name as "Name (Level #)"
+    // This matches the format used in updateCharacterCNFT() for consistency
+    let combatLevel = 1;
+    try {
+      const row = await NftColumns.get(assetId);
+      if (row) {
+        const stats = await NftColumns.columnsToStatsWithSkills(row);
+        combatLevel = stats.combatLevel || 1;
+        console.log(`📊 Fetched combat level ${combatLevel} for name formatting`);
+      }
+    } catch (dbErr) {
+      console.warn(`⚠️ Failed to fetch combat level, using default: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+    }
+    
+    // Format name as "Name (Level #)" to match URI update format
+    // CRITICAL: Name must be <= 32 bytes for Solana on-chain storage
+    const nftDisplayName = `${name} (Level ${combatLevel})`;
+    if (nftDisplayName.length > 32) {
+      console.warn(`⚠️ Name "${nftDisplayName}" exceeds 32 bytes (${nftDisplayName.length}), truncating...`);
+      // Truncate to fit 32 bytes (Solana limit)
+      const truncatedName = nftDisplayName.substring(0, 32);
+      console.log(`📝 Truncated name: "${truncatedName}"`);
+    }
+    console.log(`📝 Updating cNFT name only: "${nftDisplayName}" (${nftDisplayName.length} bytes) for assetId ${assetId} (base name: "${name}")`);
+    
+    // Setup UMI with Bubblegum
+    const dasRpcUrl = getDasUrl() || getRpcUrl();
+    const umiWithBubblegum = createUmi(dasRpcUrl)
+      .use(mplBubblegum())
+      .use(mplTokenMetadata())
+      .use(signerIdentity(createSignerFromKeypair(umi, serverSigner)));
+
+    // Fetch asset with proof (with retry for stale proofs)
+    const fetchAssetWithRetry = async (retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const asset = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+            truncateCanopy: true
+          });
+          return asset;
+        } catch (error: any) {
+          const errorMsg = error.message || String(error);
+          if (i < retries - 1 && (errorMsg.includes('Invalid root') || errorMsg.includes('leaf value'))) {
+            console.log(`🔄 Stale proof detected (attempt ${i + 1}/${retries}), retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+            continue;
+          }
+          throw error;
+        }
+      }
+    };
+
+    let assetWithProof = await fetchAssetWithRetry();
+    
+    if (!assetWithProof) {
+      throw new Error('Failed to fetch asset with proof');
+    }
+    
+    // Log current metadata for debugging
+    console.log(`📋 Current on-chain name: "${assetWithProof.metadata.name}"`);
+    console.log(`📋 Current metadata structure:`, JSON.stringify({
+      name: assetWithProof.metadata.name,
+      symbol: assetWithProof.metadata.symbol,
+      uri: assetWithProof.metadata.uri?.substring(0, 50) + '...'
+    }, null, 2));
+    
+    // Determine leaf owner
+    const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
+    console.log(`🎯 Using leaf owner: ${leafOwner}`);
+    
+    // CRITICAL: Include leafDelegate - during mint we set it to serverSigner
+    // This may be required for metadata updates to work
+    const leafDelegate = (assetWithProof as any)?.leafDelegate || serverSigner.publicKey;
+    console.log(`🎯 Using leaf delegate: ${leafDelegate}`);
+    
+    // Build update transaction - NAME ONLY (small transaction)
+    // Use formatted name with level suffix to match URI update format
+    // CRITICAL: Ensure name fits in 32 bytes
+    const finalName = nftDisplayName.length > 32 ? nftDisplayName.substring(0, 32) : nftDisplayName;
+    
+    // CRITICAL: Update currentMetadata directly with new name
+    // For compressed NFTs, we may need to update the metadata object itself, not just updateArgs
+    const updatedMetadata = {
+      ...assetWithProof.metadata,
+      name: finalName
+    };
+    
+    const updateArgs = {
+      name: some(finalName)
+      // URI stays the same - this keeps transaction small
+    };
+    
+    console.log(`🔧 Update args:`, JSON.stringify({ name: finalName }, null, 2));
+    console.log(`🔧 Updated metadata name: "${updatedMetadata.name}" (was "${assetWithProof.metadata.name}")`);
+    
+    let updateTx = updateMetadata(umiWithBubblegum, {
+      ...assetWithProof,
+      leafOwner: leafOwner,
+      leafDelegate: publicKey(leafDelegate.toString()),
+      currentMetadata: updatedMetadata, // Use updated metadata with new name
+      updateArgs,
+      collectionMint: publicKey(COLLECTION_MINT)
+    });
+
+    // Send with retry
+    console.log('🚀 Sending name-only update transaction...');
+    
+    const sendTransactionWithRetry = async (retries = 2): Promise<string> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          console.log(`🔄 Name update attempt ${i + 1}/${retries}...`);
+          const result = await updateTx.sendAndConfirm(umiWithBubblegum, {
+            send: { skipPreflight: false }
+          });
+          const rawSig: any = (result as any)?.signature;
+          if (typeof rawSig === 'string') return rawSig;
+          if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
+            const bs58 = require('bs58');
+            return bs58.encode(Uint8Array.from(rawSig));
+          }
+          return String(rawSig || '');
+        } catch (error: any) {
+          const errorMsg = error.message || String(error);
+          console.error(`❌ Name update attempt ${i + 1} failed:`, errorMsg);
+          
+          // Check for stale proof or expired blockhash
+          const isStaleProof = errorMsg?.includes('Invalid root recomputed from proof') || 
+                               errorMsg?.includes('leaf value does not match') ||
+                               errorMsg?.includes('current leaf value does not match');
+          const isBlockhashExpired = errorMsg?.includes('Blockhash not found') ||
+                                     errorMsg?.includes('blockhash not found');
+          
+          if ((isStaleProof || isBlockhashExpired) && i < retries - 1) {
+            if (isStaleProof) {
+              console.log('🔄 Stale proof detected, refetching asset and retrying...');
+            } else {
+              console.log('🔄 Expired blockhash detected, refetching asset and rebuilding transaction...');
+            }
+            
+            // Refetch asset with fresh proof
+            assetWithProof = await fetchAssetWithRetry();
+            
+            if (!assetWithProof) {
+              throw new Error('Failed to refetch asset with proof');
+            }
+            
+            // Rebuild transaction
+            updateTx = updateMetadata(umiWithBubblegum, {
+              ...assetWithProof,
+              leafOwner: leafOwner,
+              currentMetadata: assetWithProof.metadata,
+              updateArgs,
+              collectionMint: publicKey(COLLECTION_MINT)
+            });
+            
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+            continue;
+          }
+          
+          // If last retry or non-recoverable error, throw
+          if (i === retries - 1) {
+            throw error;
+          }
+        }
+      }
+      throw new Error('Failed after all retries');
+    };
+
+    const signature = await sendTransactionWithRetry();
+    console.log(`✅ Name update transaction sent: ${signature}`);
+    
+    // CRITICAL: Verify the name was actually updated by refetching the asset
+    // Wait a moment for the update to propagate
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    try {
+      const verifyAsset = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+        truncateCanopy: true
+      });
+      const updatedName = verifyAsset.metadata.name;
+      console.log(`🔍 Verification - On-chain name after update: "${updatedName}"`);
+      
+      if (updatedName === finalName) {
+        console.log(`✅ Name successfully updated on-chain!`);
+      } else {
+        console.warn(`⚠️ Name mismatch! Expected: "${finalName}", Got: "${updatedName}"`);
+        console.warn(`⚠️ The transaction succeeded but name may not have updated. This could be a Bubblegum SDK issue.`);
+      }
+    } catch (verifyErr) {
+      console.warn(`⚠️ Could not verify name update (may need more time to propagate):`, verifyErr instanceof Error ? verifyErr.message : String(verifyErr));
+    }
+    
+    return {
+      success: true,
+      signature
+    };
+  } catch (error: any) {
+    const errorMsg = error.message || String(error);
+    console.error(`❌ Failed to update cNFT name:`, errorMsg);
+    return {
+      success: false,
+      error: errorMsg
+    };
+  }
+}
+
 // Update character cNFT metadata
 // FIXED: Reverted to SDK-based approach (like working commit be1962f)
 // The manual DAS API approach was buggy and overcomplicated
 export async function updateCharacterCNFT(
   assetId: string,
   characterStats: CharacterStats,
-  playerPDA?: string
+  playerPDA?: string,
+  imageUrl?: string
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
     console.log('🔄 Updating cNFT metadata for:', assetId);
@@ -356,16 +570,42 @@ export async function updateCharacterCNFT(
     // CRITICAL: Use proof IMMEDIATELY - don't delay or tree state may change
     // Build JSON payload and upload to Arweave FIRST (before using proof)
     console.log('🔄 Updating cNFT metadata for:', assetId);
-    const imageUrl = resolveDefaultCharacterImageUrl(characterStats.name);
+    
+    // Determine image URL: use provided imageUrl, or check database, or fall back to default
+    let finalImageUrl = imageUrl;
+    if (!finalImageUrl) {
+      // Try to get image URL from database (character_image_url column)
+      try {
+        const row = await NftColumns.get(assetId);
+        if (row?.character_image_url) {
+          finalImageUrl = row.character_image_url;
+          console.log(`✅ Using image URL from database: ${finalImageUrl}`);
+        }
+      } catch (dbErr) {
+        console.warn(`⚠️ Failed to fetch image URL from database: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+      }
+    }
+    
+    // Fall back to default if still no image URL
+    if (!finalImageUrl) {
+      finalImageUrl = resolveDefaultCharacterImageUrl(characterStats.name);
+      console.log(`⚠️ No image URL found, using default: ${finalImageUrl}`);
+    } else {
+      console.log(`✅ Using image URL: ${finalImageUrl}`);
+    }
+    
+    // Format name as "Name (Level #)" for NFT display
+    const nftDisplayName = `${characterStats.name} (Level ${characterStats.combatLevel})`;
+    
     const jsonPayload = {
-      name: `${characterStats.name} (Combat ${characterStats.combatLevel || 1})`,
+      name: nftDisplayName, // Format: "Name (Level #)"
       symbol: 'PLAYER',
       description: `Character with ${characterStats.totalLevel} total skill levels`,
-      image: imageUrl,
+      image: finalImageUrl,
       external_url: 'https://obeliskparadox.com',
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
-        ...(characterStats.combatLevel != null ? [{ trait_type: 'Combat Level', value: characterStats.combatLevel.toString() }] : []),
+        ...(characterStats.combatLevel != null ? [{ trait_type: 'Level', value: characterStats.combatLevel.toString() }] : []), // Changed from "Combat Level" to "Level"
         { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
         { trait_type: 'Attack', value: (characterStats.skills.attack?.level ?? 1).toString() },
         { trait_type: 'Strength', value: (characterStats.skills.strength?.level ?? 1).toString() },
@@ -378,14 +618,13 @@ export async function updateCharacterCNFT(
         { trait_type: 'Mining', value: (characterStats.skills.mining?.level ?? 1).toString() },
         { trait_type: 'Woodcutting', value: (characterStats.skills.woodcutting?.level ?? 1).toString() },
         { trait_type: 'Fishing', value: (characterStats.skills.fishing?.level ?? 1).toString() },
-        { trait_type: 'Farming', value: (characterStats.skills.farming?.level ?? 1).toString() },
         { trait_type: 'Hunting', value: (characterStats.skills.hunting?.level ?? 1).toString() },
         { trait_type: 'Smithing', value: (characterStats.skills.smithing?.level ?? 1).toString() },
         { trait_type: 'Cooking', value: (characterStats.skills.cooking?.level ?? 1).toString() },
         { trait_type: 'Alchemy', value: (characterStats.skills.alchemy?.level ?? 1).toString() },
         { trait_type: 'Construction', value: (characterStats.skills.construction?.level ?? 1).toString() }
       ],
-      properties: { files: [{ uri: imageUrl, type: 'image/svg+xml' }] },
+      properties: { files: [{ uri: finalImageUrl, type: 'image/png' }] },
       characterStats
     };
     
@@ -394,12 +633,15 @@ export async function updateCharacterCNFT(
     console.log('✅ Metadata uploaded to Arweave:', newUri);
     console.log(`📏 URI length: ${newUri.length} characters`);
     
-    // Try updating ONLY URI first (most important for skill persistence)
-    // If transaction is still too large, we'll need to use a shorter storage solution
-    const updateArgs = {
+    // Update URI only - name is already in the Arweave JSON metadata
+    // Updating both URI and name exceeds transaction size limit (1648 > 1644 bytes)
+    // The name is accessible via the metadata URI, so updating URI is sufficient
+    let updateArgs: any = {
       uri: some(newUri)
-      // Skip name update to save transaction size - URI is more important for skill data
+      // Skip name update - it's in the Arweave JSON and updating both exceeds transaction size
     };
+    
+    console.log(`📝 Updating URI only (name "${nftDisplayName}" is in Arweave JSON): "${newUri}"`);
     
     // Determine leaf owner
     const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
@@ -434,6 +676,29 @@ export async function updateCharacterCNFT(
         } catch (error: any) {
           const errorMsg = error.message || String(error);
           console.error(`❌ Transaction attempt ${i + 1} failed:`, errorMsg);
+          
+          // Check if transaction is too large (trying to update both URI and name)
+          const isTransactionTooLarge = errorMsg?.includes('too large') || 
+                                       errorMsg?.includes('exceeds') ||
+                                       errorMsg?.includes('1644') ||
+                                       errorMsg?.includes('1232');
+          
+          // If transaction too large and we're trying to update both URI and name, fall back to URI-only
+          if (isTransactionTooLarge && updateArgs.name && i === 0) {
+            console.warn(`⚠️ Transaction too large with name update, falling back to URI-only update`);
+            updateArgs = { uri: some(newUri) }; // Remove name update
+            
+            // Rebuild transaction with URI-only
+            assetWithProof = await fetchAssetWithRetry();
+            updateTx = updateMetadata(umiWithBubblegum, {
+              ...assetWithProof,
+              leafOwner: leafOwner,
+              currentMetadata: assetWithProof.metadata,
+              updateArgs,
+              collectionMint: publicKey(COLLECTION_MINT)
+            });
+            continue; // Retry with URI-only
+          }
           
           // Check for various recoverable errors that require refetching proof/blockhash
           const isStaleProof = errorMsg?.includes('Invalid root recomputed from proof') || 
@@ -910,7 +1175,7 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
   // Initialize default values (exactly like frontend)
   let characterName = metadata.name || 'Unknown';
   let characterLevel = 1;
-  let combatLevel = 3;
+  let combatLevel = 1; // Default: all 6 combat skills at level 1 = (1+1+1+1+1+1)/6 = 1
   let totalLevel = 9;
   let characterClass = 'Adventurer';
   let characterVersion = '1.0.0';
@@ -918,12 +1183,18 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
   let isV2Format = false;
   
   // Parse name for level info (exactly like frontend)
-  const nameMatch = characterName.match(/^(.+?)\s*\(Level\s+(\d+)(?:,\s*Combat\s+(\d+))?\)$/);
+  // Parse old format: "Name (Level #)" or "Name (Combat #)" - extract just the name
+  const nameMatch = characterName.match(/^(.+?)\s*\(Level\s+(\d+)(?:,\s*Combat\s+(\d+))?\)$/) || 
+                    characterName.match(/^(.+?)\s*\(Combat\s+(\d+)\)$/);
   if (nameMatch) {
-    characterName = nameMatch[1];
-    characterLevel = parseInt(nameMatch[2]);
+    characterName = nameMatch[1]; // Extract just the name, remove level suffix
+    if (nameMatch[2]) characterLevel = parseInt(nameMatch[2]);
     if (nameMatch[3]) {
       combatLevel = parseInt(nameMatch[3]);
+      isV2Format = true;
+    } else if (nameMatch[2] && !nameMatch[3]) {
+      // Handle "Name (Combat #)" format
+      combatLevel = parseInt(nameMatch[2]);
       isV2Format = true;
     }
   }
@@ -937,11 +1208,11 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
       // Full names (legacy)
       'Attack': 'attack', 'Strength': 'strength', 'Defense': 'defense',
       'Magic': 'magic', 'Projectiles': 'projectiles', 'Vitality': 'vitality',
-      'Crafting': 'crafting', 'Luck': 'luck', 'Mining': 'mining', 'Woodcutting': 'woodcutting', 'Fishing': 'fishing', 'Farming': 'farming', 'Hunting': 'hunting', 'Smithing': 'smithing', 'Cooking': 'cooking', 'Alchemy': 'alchemy', 'Construction': 'construction',
+      'Crafting': 'crafting', 'Luck': 'luck', 'Mining': 'mining', 'Woodcutting': 'woodcutting', 'Fishing': 'fishing', 'Hunting': 'hunting', 'Smithing': 'smithing', 'Cooking': 'cooking', 'Alchemy': 'alchemy', 'Construction': 'construction',
       // Shortened names (current)
       'Att': 'attack', 'Str': 'strength', 'Def': 'defense', 
       'Mag': 'magic', 'Pro': 'projectiles', 'Vit': 'vitality',
-      'Cra': 'crafting', 'Luc': 'luck', 'Min': 'mining', 'Woo': 'woodcutting', 'Fish': 'fishing', 'Farm': 'farming', 'Hunt': 'hunting', 'Smith': 'smithing', 'Cook': 'cooking', 'Alch': 'alchemy', 'Const': 'construction'
+      'Cra': 'crafting', 'Luc': 'luck', 'Min': 'mining', 'Woo': 'woodcutting', 'Fish': 'fishing', 'Hunt': 'hunting', 'Smith': 'smithing', 'Cook': 'cooking', 'Alch': 'alchemy', 'Const': 'construction'
     };
     
     metadata.attributes.forEach((attr: any) => {
@@ -954,7 +1225,7 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
         if (characterVersion === '2.0.0' || characterVersion === '2.1.0') {
           isV2Format = true;
         }
-      } else if (attr.trait_type === 'Combat Level') {
+      } else if (attr.trait_type === 'Combat Level' || attr.trait_type === 'Level') { // Support both old and new format
         combatLevel = parseInt(attr.value);
       } else if (attr.trait_type === 'Total Level') {
         totalLevel = parseInt(attr.value);
@@ -1026,7 +1297,7 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
           const skillMap = {
             'Att': 'attack', 'Str': 'strength', 'Def': 'defense', 
             'Mag': 'magic', 'Pro': 'projectiles', 'Vit': 'vitality',
-            'Cra': 'crafting', 'Luc': 'luck', 'Min': 'mining', 'Woo': 'woodcutting', 'Fish': 'fishing', 'Farm': 'farming', 'Hunt': 'hunting', 'Smith': 'smithing', 'Cook': 'cooking', 'Alch': 'alchemy', 'Const': 'construction'
+            'Cra': 'crafting', 'Luc': 'luck', 'Min': 'mining', 'Woo': 'woodcutting', 'Fish': 'fishing', 'Hunt': 'hunting', 'Smith': 'smithing', 'Cook': 'cooking', 'Alch': 'alchemy', 'Const': 'construction'
           };
           
           metadataJson.attributes.forEach((attr: any) => {
@@ -1035,7 +1306,7 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
               const level = parseInt(attr.value);
               skillData[skillName] = { level, experience: level * 100 };
             }
-            else if (attr.trait_type === 'Combat Level') {
+            else if (attr.trait_type === 'Combat Level' || attr.trait_type === 'Level') { // Support both old and new format
               combatLevel = parseInt(attr.value);
             }
             else if (attr.trait_type === 'Total Level') {
@@ -1050,7 +1321,7 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
   }
   
   // Fill in missing skills with defaults (exactly like frontend)
-  const defaultSkills = ['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'mining', 'woodcutting', 'fishing', 'farming', 'hunting', 'smithing', 'cooking', 'alchemy', 'construction'];
+  const defaultSkills = ['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'mining', 'woodcutting', 'fishing', 'hunting', 'smithing', 'cooking', 'alchemy', 'construction'];
   defaultSkills.forEach(skill => {
     if (!skillData[skill]) {
       skillData[skill] = { level: 1, experience: 0 };
@@ -1079,7 +1350,6 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
       mining: skillData.mining || { level: 1, experience: 0 },
       woodcutting: skillData.woodcutting || { level: 1, experience: 0 },
       fishing: skillData.fishing || { level: 1, experience: 0 },
-      farming: skillData.farming || { level: 1, experience: 0 },
       hunting: skillData.hunting || { level: 1, experience: 0 },
       smithing: skillData.smithing || { level: 1, experience: 0 },
       cooking: skillData.cooking || { level: 1, experience: 0 },
@@ -1098,7 +1368,6 @@ async function parseCharacterFromMetadata(assetWithProof: any): Promise<Characte
       mining: 0,
       woodcutting: 0,
       fishing: 0,
-      farming: 0,
       hunting: 0,
       smithing: 0,
       cooking: 0,
@@ -1117,7 +1386,7 @@ async function storeCharacterMetadata(metadataId: string, characterStats: Charac
       image: resolveDefaultCharacterImageUrl(characterStats.name),
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
-        { trait_type: 'Combat Level', value: characterStats.combatLevel.toString() },
+        { trait_type: 'Level', value: characterStats.combatLevel.toString() }, // Changed from "Combat Level" to "Level"
         { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
         { trait_type: 'Attack', value: characterStats.skills.attack.level.toString() },
         { trait_type: 'Strength', value: characterStats.skills.strength.level.toString() },
@@ -1130,7 +1399,6 @@ async function storeCharacterMetadata(metadataId: string, characterStats: Charac
         { trait_type: 'Mining', value: characterStats.skills.mining.level.toString() },
         { trait_type: 'Woodcutting', value: characterStats.skills.woodcutting.level.toString() },
         { trait_type: 'Fishing', value: characterStats.skills.fishing.level.toString() },
-        { trait_type: 'Farming', value: characterStats.skills.farming.level.toString() },
         { trait_type: 'Hunting', value: characterStats.skills.hunting.level.toString() },
         { trait_type: 'Smithing', value: characterStats.skills.smithing.level.toString() },
         { trait_type: 'Cooking', value: characterStats.skills.cooking.level.toString() },

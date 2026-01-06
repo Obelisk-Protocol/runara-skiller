@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getDasUrl, getRpcUrl } from '../config/solana';
 import crypto from 'crypto'
 import { z } from 'zod';
-import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT, findLatestAssetIdForOwner, getAssetMetadataDebug, generateDefaultCharacterStats } from '../services/cnft';
+import { createCharacterCNFT, updateCharacterCNFT, updateCNFTNameOnly, fetchCharacterFromCNFT, findLatestAssetIdForOwner, getAssetMetadataDebug, generateDefaultCharacterStats } from '../services/cnft';
 import { CharacterService } from '../services/character';
 import { MetadataStore, NftColumns } from '../services/database';
 import { supabase } from '../config/database';
@@ -40,7 +40,7 @@ router.post('/clear-slot-after-withdraw', async (req: any, res: any) => {
     return res.status(400).json({ success: false, error: e?.message || 'Invalid request' })
   }
 })
- import { addSkillXp, getAllSkillXp, getXpBounds, computeProgress, markAssetSynced } from '../services/nft-skill-experience';
+ import { addSkillXp, getAllSkillXp, getXpBounds, computeProgress, markAssetSynced, CharacterSkill } from '../services/nft-skill-experience';
 
 // Lightweight XP action rules. Keep server-authoritative, don't trust client-provided XP.
 const XP_ACTION_RULES = {
@@ -64,7 +64,6 @@ const XP_ACTION_RULES = {
   fish_basic: { skill: 'fishing', baseXp: 15 },
   fish_medium: { skill: 'fishing', baseXp: 20 },
   fish_hard: { skill: 'fishing', baseXp: 25 },
-  farm_harvest: { skill: 'farming', baseXp: 15 },
   hunt_basic: { skill: 'hunting', baseXp: 20 },
   hunt_medium: { skill: 'hunting', baseXp: 30 },
 } as const
@@ -78,6 +77,7 @@ const CreateCharacterSchema = z.object({
   slot: z.number().int().min(1).max(5).optional()
 });
 
+// Make characterStats optional - if not provided, will fetch from database (nfts.name is source of truth)
 const UpdateCNFTMetadataSchema = z.object({
   assetId: z.string(),
   characterStats: z.object({
@@ -98,7 +98,6 @@ const UpdateCNFTMetadataSchema = z.object({
       mining: z.object({ level: z.number(), experience: z.number() }),
       woodcutting: z.object({ level: z.number(), experience: z.number() }),
       fishing: z.object({ level: z.number(), experience: z.number() }),
-      farming: z.object({ level: z.number(), experience: z.number() }),
       hunting: z.object({ level: z.number(), experience: z.number() }),
       smithing: z.object({ level: z.number(), experience: z.number() }),
       cooking: z.object({ level: z.number(), experience: z.number() }),
@@ -117,14 +116,13 @@ const UpdateCNFTMetadataSchema = z.object({
       mining: z.number(),
       woodcutting: z.number(),
       fishing: z.number(),
-      farming: z.number(),
       hunting: z.number(),
       smithing: z.number(),
       cooking: z.number(),
       alchemy: z.number(),
       construction: z.number()
     })
-  }),
+  }).optional(), // Optional - will fetch from database if not provided (nfts.name is source of truth)
   playerPDA: z.string().optional()
 });
 
@@ -149,7 +147,7 @@ const TrainSkillSchema = z.object({
     // Combat Skills
     'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
     // Gathering Skills
-    'mining', 'woodcutting', 'fishing', 'farming', 'hunting',
+    'mining', 'woodcutting', 'fishing', 'hunting',
     // Crafting Skills
     'smithing', 'crafting', 'cooking', 'alchemy', 'construction',
     // Unique Skills
@@ -164,7 +162,7 @@ const AddSkillXpSchema = z.object({
     // Combat Skills
     'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
     // Gathering Skills
-    'mining', 'woodcutting', 'fishing', 'farming', 'hunting',
+    'mining', 'woodcutting', 'fishing', 'hunting',
     // Crafting Skills
     'smithing', 'crafting', 'cooking', 'alchemy', 'construction',
     // Unique Skills
@@ -200,7 +198,6 @@ const AwardActionSchema = z.object({
     'fish_basic',
     'fish_medium',
     'fish_hard',
-    'farm_harvest',
     'hunt_basic',
     'hunt_medium',
   ] as [string, ...string[]]),
@@ -537,7 +534,7 @@ router.post('/inventory-union', async (req: any, res: any) => {
       try {
         const row = await NftColumns.get(assetId)
         if (row) {
-          const stats = NftColumns.columnsToStats(row)
+          const stats = await NftColumns.columnsToStatsWithSkills(row)
           characters.push({ id: assetId, characterStats: stats })
           continue
         }
@@ -614,10 +611,64 @@ router.get('/:assetId/debug', async (req: any, res: any) => {
   }
 });
 
+// POST /api/characters/update-cnft-name
+// Update ONLY the name field (separate transaction to avoid size limits)
+router.post('/update-cnft-name', async (req: any, res: any) => {
+  try {
+    const { assetId, name, playerPDA } = req.body;
+    
+    if (!assetId || !name) {
+      return res.status(400).json({
+        success: false,
+        error: 'assetId and name are required'
+      });
+    }
+    
+    console.log('📝 Updating cNFT name only:', { assetId, name });
+    
+    const result = await updateCNFTNameOnly(assetId, name, playerPDA);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        signature: result.signature,
+        message: 'Character name updated successfully'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error || 'Failed to update character name'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Update cNFT name error:', error);
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Invalid request'
+    });
+  }
+});
+
 // POST /api/characters/update-cnft-metadata
 router.post('/update-cnft-metadata', async (req: any, res: any) => {
   try {
-    const { assetId, characterStats, playerPDA } = UpdateCNFTMetadataSchema.parse(req.body);
+    const { assetId, characterStats: providedStats, playerPDA } = UpdateCNFTMetadataSchema.parse(req.body);
+    
+    // CRITICAL: If characterStats not provided, fetch from database (nfts.name is source of truth)
+    let characterStats = providedStats;
+    if (!characterStats) {
+      console.log('🔄 Fetching character stats from database for NFT update...');
+      const row = await NftColumns.get(assetId);
+      if (row) {
+        characterStats = await NftColumns.columnsToStatsWithSkills(row);
+        console.log(`✅ Fetched character stats from database: name="${characterStats.name}"`);
+      } else {
+        return res.status(404).json({
+          success: false,
+          error: 'Character not found in database'
+        });
+      }
+    }
     
     console.log('🔄 Updating cNFT metadata:', { assetId, characterName: characterStats.name });
     
@@ -702,11 +753,26 @@ router.post('/:assetId/add-skill-xp', async (req: any, res: any) => {
         try {
           const row = await NftColumns.get(assetId)
           if (row) {
-            const stats = NftColumns.columnsToStats(row)
+            const stats = await NftColumns.columnsToStatsWithSkills(row)
+            // Update URI (includes full metadata with new skill levels)
             const upd = await updateCharacterCNFT(assetId, stats, playerPDA)
             if (upd.success) {
               await markAssetSynced(assetId)
-              console.log(`✅ Background metadata update completed for ${assetId}: ${upd.signature}`)
+              console.log(`✅ Background metadata URI update completed for ${assetId}: ${upd.signature}`)
+              
+              // CRITICAL: Also update on-chain name to reflect new combat level
+              // URI update doesn't change the on-chain name field
+              try {
+                const nameUpd = await updateCNFTNameOnly(assetId, stats.name, playerPDA)
+                if (nameUpd.success) {
+                  console.log(`✅ Background name update completed for ${assetId}: ${nameUpd.signature}`)
+                } else {
+                  console.warn(`⚠️ Background name update failed: ${nameUpd.error}`)
+                }
+              } catch (nameErr) {
+                console.warn('⚠️ Background name update error:', nameErr)
+                // Don't fail - URI update succeeded
+              }
             }
           }
         } catch (e) {
@@ -737,7 +803,8 @@ router.get('/:assetId', async (req: any, res: any) => {
       try {
         const row = await NftColumns.get(assetId)
         if (row) {
-          const stats = NftColumns.columnsToStats(row)
+          // Fetch skills from nft_skill_experience (source of truth)
+          const stats = await NftColumns.columnsToStatsWithSkills(row)
           character = { id: assetId, characterStats: stats, lastSynced: new Date(row.updated_at) }
         }
       } catch (e) {
@@ -755,42 +822,101 @@ router.get('/:assetId', async (req: any, res: any) => {
     }
 
     if (character) {
+      // Add character image URL from database if available
+      // Check nfts table for character_image_url column
+      try {
+        const { data: nftRow, error: nftError } = await supabase
+          .from('nfts')
+          .select('character_image_url, name')
+          .eq('asset_id', assetId)
+          .single();
+        
+        if (nftError && nftError.code !== 'PGRST116') {
+          console.warn(`⚠️ Failed to fetch NFT row for image/name:`, nftError);
+        }
+        
+        // CRITICAL: Set image from database (character_image_url)
+        if (nftRow?.character_image_url) {
+          character.image = nftRow.character_image_url;
+          console.log(`✅ Set character.image from database: ${nftRow.character_image_url}`);
+        } else {
+          console.log(`⚠️ No character_image_url found in database for ${assetId}`);
+        }
+        
+        // CRITICAL: Ensure name comes from database (nfts.name is source of truth)
+        if (nftRow?.name && character.characterStats) {
+          character.characterStats.name = nftRow.name;
+          console.log(`✅ Synced character name from database: ${nftRow.name}`);
+        }
+      } catch (e) {
+        console.warn(`⚠️ Error fetching NFT row for image/name:`, e);
+        // Ignore errors - image is optional
+      }
+      
       // Augment with per-skill XP progress from DB if available
+      // CRITICAL: nft_skill_experience is the source of truth for skill levels
+      // The nfts table may have stale data, so always prioritize nft_skill_experience
       try {
         const skillXp = await getAllSkillXp(assetId)
         const skills = character.characterStats?.skills || {}
         const enriched: any = {}
         const skillExperience: any = {}
         
+        // CRITICAL: Always use skillXp (from nft_skill_experience) as source of truth
+        // Calculate level from XP to ensure accuracy (don't trust stored level)
+        for (const key of Object.keys(skillXp)) {
+          const k = key as CharacterSkill
+          const rec = skillXp[k]
+          const prog = computeProgress(rec.experience)
+          // ALWAYS use calculated level from XP (prog.level) - it's the most accurate
+          // Only use rec.level if XP is 0 (meaning no XP record exists yet)
+          const finalLevel = rec.experience > 0 ? prog.level : (rec.level || 1)
+          enriched[k] = {
+            level: finalLevel,
+            experience: rec.experience,
+            xpForCurrentLevel: prog.xpForCurrentLevel,
+            xpForNextLevel: prog.xpForNextLevel,
+            progressPct: prog.progressPct,
+          }
+          skillExperience[k] = rec.experience
+        }
+        
+        // Also include any skills from character.characterStats that might not be in skillXp yet
         for (const key of Object.keys(skills)) {
           const k = key as keyof typeof skills
-          const rec: any = (skillXp as any)[k]
-          if (rec) {
-            const prog = computeProgress(rec.experience)
+          if (!enriched[k]) {
+            // Skill not in nft_skill_experience yet, use from character stats or default
             enriched[k] = {
-              level: skills[k]?.level ?? prog.level,
-              experience: rec.experience,
-              xpForCurrentLevel: prog.xpForCurrentLevel,
-              xpForNextLevel: prog.xpForNextLevel,
-              progressPct: prog.progressPct,
+              level: skills[k]?.level ?? 1,
+              experience: skills[k]?.experience ?? 0,
+              xpForCurrentLevel: 0,
+              xpForNextLevel: 0,
+              progressPct: 0,
             }
-            // Also populate skillExperience collection for Unity
-            skillExperience[k] = rec.experience
-          } else {
-            // If no XP record, use experience from skills object or default to 0
             skillExperience[k] = skills[k]?.experience ?? 0
           }
         }
         
+        // CRITICAL: Replace skills entirely with enriched data from nft_skill_experience
+        // Don't merge with character.characterStats.skills as it may have stale defaults
         character = { 
           ...character, 
           characterStats: { 
             ...character.characterStats, 
-            skills: { ...character.characterStats.skills, ...enriched },
+            skills: enriched, // Use enriched skills directly (source of truth)
             skillExperience: skillExperience
           } 
         }
       } catch {}
+      
+      // Log what we're returning for debugging
+      console.log(`✅ Returning character data:`, {
+        assetId,
+        name: character.characterStats?.name,
+        image: character.image ? character.image.substring(0, 50) + '...' : 'null',
+        hasImage: !!character.image,
+      });
+      
       return res.json({ success: true, character });
     }
 
@@ -889,7 +1015,7 @@ router.post('/fetch-player-cnfts-simple', async (req: any, res: any) => {
         // 1) Prefer DB row so UI shows authoritative merged skills immediately
         const row = await NftColumns.get(assetId)
         if (row) {
-          const stats = NftColumns.columnsToStats(row)
+          const stats = await NftColumns.columnsToStatsWithSkills(row)
           characters.push({ id: assetId, characterStats: stats, lastSynced: new Date(row.updated_at) })
           console.log(`✅ Returned DB snapshot for asset: ${assetId}`)
           continue
@@ -1012,11 +1138,26 @@ router.post('/add-skill-xp', async (req: any, res: any) => {
         try {
           const row = await NftColumns.get(assetId)
           if (row) {
-            const stats = NftColumns.columnsToStats(row)
+            const stats = await NftColumns.columnsToStatsWithSkills(row)
+            // Update URI (includes full metadata with new skill levels)
             const upd = await updateCharacterCNFT(assetId, stats, playerPDA)
             if (upd.success) {
               await markAssetSynced(assetId)
-              console.log(`✅ Background metadata update completed for ${assetId}: ${upd.signature}`)
+              console.log(`✅ Background metadata URI update completed for ${assetId}: ${upd.signature}`)
+              
+              // CRITICAL: Also update on-chain name to reflect new combat level
+              // URI update doesn't change the on-chain name field
+              try {
+                const nameUpd = await updateCNFTNameOnly(assetId, stats.name, playerPDA)
+                if (nameUpd.success) {
+                  console.log(`✅ Background name update completed for ${assetId}: ${nameUpd.signature}`)
+                } else {
+                  console.warn(`⚠️ Background name update failed: ${nameUpd.error}`)
+                }
+              } catch (nameErr) {
+                console.warn('⚠️ Background name update error:', nameErr)
+                // Don't fail - URI update succeeded
+              }
             }
           }
         } catch (e) {

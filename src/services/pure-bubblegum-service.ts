@@ -123,7 +123,7 @@ export class PureBubblegumService {
         collectionMint: publicKey(this.collectionMint.toString()),
         metadata: {
           name: request.itemSymbol === 'PLAYER' ? 
-            `${request.itemName} (Level 1, Combat 3)` : // v2.0.0 format for players
+            request.itemName : // Just the character name, no level suffix
             request.itemName, // Normal format for items
           symbol: request.itemSymbol,
           uri: request.metadataUri,
@@ -144,7 +144,7 @@ export class PureBubblegumService {
             attributes: [
               { trait_type: 'Version', value: '2.0.0' },
               { trait_type: 'Level', value: '1' },
-              { trait_type: 'Combat Level', value: '3' },
+              { trait_type: 'Level', value: '1' }, // Changed from "Combat Level" to "Level"
               { trait_type: 'Total Level', value: '9' },
               { trait_type: 'Experience', value: '0' },
               { trait_type: 'Class', value: 'Adventurer' },
@@ -262,7 +262,7 @@ export class PureBubblegumService {
         merkleTree: publicKey(this.merkleTree.toString()),
         collectionMint: publicKey(this.collectionMint.toString()),
         metadata: {
-          name: `${request.playerName} (Level 1, Combat 3)`, // v2.0.0 format with combat level
+          name: request.playerName, // Just the character name, no level suffix
           symbol: 'PLAYER',
           uri: request.metadataUri,
           sellerFeeBasisPoints: 500,

@@ -33,7 +33,7 @@ async function testSingleCNFT(assetId, name) {
         assetId: assetId,
         characterStats: {
           name: name,
-          combatLevel: 3,
+          combatLevel: 1, // Default: all 6 combat skills at level 1 = (1+1+1+1+1+1)/6 = 1
           totalLevel: 18,
           version: "1.0.0",
           experience: 100,
@@ -49,7 +49,6 @@ async function testSingleCNFT(assetId, name) {
             mining: { level: 1, experience: 0 },
             woodcutting: { level: 1, experience: 0 },
             fishing: { level: 1, experience: 0 },
-            farming: { level: 1, experience: 0 },
             hunting: { level: 1, experience: 0 },
             smithing: { level: 1, experience: 0 },
             cooking: { level: 1, experience: 0 },
@@ -68,7 +67,6 @@ async function testSingleCNFT(assetId, name) {
             mining: 0,
             woodcutting: 0,
             fishing: 0,
-            farming: 0,
             hunting: 0,
             smithing: 0,
             cooking: 0,

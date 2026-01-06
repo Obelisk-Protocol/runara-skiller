@@ -22,6 +22,7 @@ export interface PlayerItem {
   mint_cost: number
   is_stacked: boolean
   acquisition_source: string
+  slot_position?: number | null
 }
 
 export interface AwardItemParams {
@@ -125,12 +126,14 @@ export class PlayerItemService {
   
   /**
    * Get all items for a player
+   * OPTIMIZED: Order by slot_position (inventory slots) first, then minted_at for overflow
    */
   static async getPlayerItems(playerId: string): Promise<PlayerItem[]> {
     const { data, error } = await supabase
       .from('player_items')
       .select('*')
       .eq('player_id', playerId)
+      .order('slot_position', { ascending: true, nullsFirst: false })
       .order('minted_at', { ascending: false })
     
     if (error) {
@@ -233,45 +236,66 @@ export class PlayerItemService {
   
   /**
    * Get player items with item definitions joined
+   * OPTIMIZED: Uses Supabase foreign key join to fetch in one query (faster than two queries)
    */
   static async getPlayerItemsWithDefinitions(playerId: string): Promise<Array<PlayerItem & { definition: ItemDefinition | null }>> {
-    // Fetch player items first
+    // Use imported supabase instance
+    
+    // OPTIMIZED: Use Supabase foreign key join (item_definition_id -> item_definitions.item_id)
+    // This fetches items + definitions in a single database query
+    // Supabase automatically detects foreign key relationships
     const { data: items, error: itemsError } = await supabase
       .from('player_items')
-      .select('*')
+      .select(`
+        *,
+        item_definitions (*)
+      `)
       .eq('player_id', playerId)
+      .order('slot_position', { ascending: true, nullsFirst: false })
       .order('minted_at', { ascending: false })
     
     if (itemsError) {
-      console.error('❌ Error fetching player items:', itemsError)
-      throw new Error(`Failed to fetch player items: ${itemsError.message}`)
+      // If join fails, fallback to two-query approach
+      console.warn('⚠️ Join query failed, falling back to two queries:', itemsError.message)
+      
+      // Fallback: fetch items first
+      const { data: itemsData, error: itemsErr } = await supabase
+        .from('player_items')
+        .select('*')
+        .eq('player_id', playerId)
+        .order('slot_position', { ascending: true, nullsFirst: false })
+        .order('minted_at', { ascending: false })
+      
+      if (itemsErr || !itemsData || itemsData.length === 0) {
+        return []
+      }
+      
+      // Fetch definitions
+      const itemDefinitionIds = Array.from(new Set(itemsData.map((item: any) => item.item_definition_id)))
+      const { data: definitions } = await supabase
+        .from('item_definitions')
+        .select('*')
+        .in('item_id', itemDefinitionIds)
+      
+      const definitionMap = new Map((definitions || []).map((def: any) => [def.item_id, def]))
+      
+      return itemsData.map((item: any) => ({
+        ...item,
+        definition: definitionMap.get(item.item_definition_id) || null
+      })) as Array<PlayerItem & { definition: any }>
     }
     
     if (!items || items.length === 0) {
       return []
     }
     
-    // Get unique item definition IDs
-    const itemDefinitionIds = Array.from(new Set(items.map((item: any) => item.item_definition_id)))
-    
-    // Fetch all item definitions in one query
-    const { data: definitions, error: definitionsError } = await supabase
-      .from('item_definitions')
-      .select('*')
-      .in('item_id', itemDefinitionIds)
-    
-    if (definitionsError) {
-      console.error('❌ Error fetching item definitions:', definitionsError)
-      throw new Error(`Failed to fetch item definitions: ${definitionsError.message}`)
-    }
-    
-    // Create a map of item_id -> definition for quick lookup
-    const definitionMap = new Map((definitions || []).map((def: any) => [def.item_id, def]))
-    
-    // Join items with their definitions
+    // Supabase returns definitions as nested array (foreign key relationship)
+    // Extract and flatten the structure
     return items.map((item: any) => ({
       ...item,
-      definition: definitionMap.get(item.item_definition_id) || null
+      definition: (item.item_definitions && Array.isArray(item.item_definitions) && item.item_definitions.length > 0)
+        ? item.item_definitions[0]  // Foreign key join returns array, take first
+        : null
     })) as Array<PlayerItem & { definition: any }>
   }
 }

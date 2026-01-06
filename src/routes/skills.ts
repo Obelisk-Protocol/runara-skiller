@@ -13,7 +13,7 @@ const addExperienceSchema = z.object({
     // Combat Skills
     'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
     // Gathering Skills
-    'mining', 'woodcutting', 'fishing', 'farming', 'hunting',
+    'mining', 'woodcutting', 'fishing', 'hunting',
     // Crafting Skills
     'smithing', 'crafting', 'cooking', 'alchemy', 'construction',
     // Unique Skills
@@ -240,93 +240,12 @@ router.get('/admin/pending-sync', async (req: any, res: any) => {
   }
 });
 
-// GET /api/skills/leaderboard/:skill - Get skill leaderboard
-router.get('/leaderboard/:skill', async (req: any, res: any) => {
-  try {
-    const { skill } = req.params;
-    const limit = parseInt(req.query.limit as string) || 100;
-    
-    if (!['combat', 'magic', 'crafting', 'exploration', 'gambling'].includes(skill)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid skill name'
-      });
-    }
-    
-    console.log(`🏆 Fetching ${skill} leaderboard (limit: ${limit})`);
-    
-    // This would use the skill_leaderboards view from the database
-    const { supabase } = await import('../config/database');
-    const { data, error } = await supabase
-      .from('skill_leaderboards')
-      .select('*')
-      .eq('skill', skill)
-      .order('level', { ascending: false })
-      .order('experience', { ascending: false })
-      .limit(limit);
-    
-    if (error) {
-      console.error('❌ Error fetching leaderboard:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to fetch leaderboard'
-      });
-    }
-    
-    res.json({
-      success: true,
-      skill,
-      leaderboard: data || [],
-      count: data?.length || 0
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching skill leaderboard:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
-  }
-});
-
-// GET /api/skills/total-level-rankings - Get total level rankings
-router.get('/rankings/total-level', async (req: any, res: any) => {
-  try {
-    const limit = parseInt(req.query.limit as string) || 100;
-    
-    console.log(`🏆 Fetching total level rankings (limit: ${limit})`);
-    
-    // This would use the total_level_rankings view from the database
-    const { supabase } = await import('../config/database');
-    const { data, error } = await supabase
-      .from('total_level_rankings')
-      .select('*')
-      .order('total_level', { ascending: false })
-      .order('total_experience', { ascending: false })
-      .limit(limit);
-    
-    if (error) {
-      console.error('❌ Error fetching total level rankings:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to fetch rankings'
-      });
-    }
-    
-    res.json({
-      success: true,
-      rankings: data || [],
-      count: data?.length || 0
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching total level rankings:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
-  }
-});
+// REMOVED: GET /api/skills/leaderboard/:skill - Unused endpoint
+// REMOVED: GET /api/skills/rankings/total-level - Unused endpoint
+// These endpoints were removed because:
+// 1. Views (skill_leaderboards, total_level_rankings) are being removed
+// 2. No client code calls these endpoints
+// 3. Leaderboard data can be computed on-demand from player_skill_experience table if needed
 
 // POST /api/skills/calculate-level - Calculate level from experience
 router.post('/calculate-level', async (req: any, res: any) => {

@@ -24,7 +24,6 @@ create table if not exists nfts (
   mining int not null default 1,
   woodcutting int not null default 1,
   fishing int not null default 1,
-  farming int not null default 1,
   hunting int not null default 1,
   
   -- Crafting Skills
@@ -80,9 +79,6 @@ begin
   end if;
   if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'fishing') then
     alter table nfts add column fishing int not null default 1;
-  end if;
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'farming') then
-    alter table nfts add column farming int not null default 1;
   end if;
   if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'hunting') then
     alter table nfts add column hunting int not null default 1;

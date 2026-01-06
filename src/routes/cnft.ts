@@ -368,7 +368,7 @@ router.post('/migrate-to-v2', async (req: any, res: any) => {
 
     // Convert migrated skills to skillExperience format required by CharacterStats
     const skillExperience: Record<string, number> = {};
-    const skillKeys = ['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'mining', 'woodcutting', 'fishing', 'farming', 'hunting', 'smithing', 'cooking', 'alchemy', 'construction'] as const;
+    const skillKeys = ['attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality', 'crafting', 'luck', 'mining', 'woodcutting', 'fishing', 'hunting', 'smithing', 'cooking', 'alchemy', 'construction'] as const;
     skillKeys.forEach(key => {
       skillExperience[key] = migratedCharacter.skills[key]?.experience || 0;
     });

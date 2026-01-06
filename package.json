@@ -10,7 +10,8 @@
     "lint": "eslint src --ext .ts",
     "test": "jest",
     "migrate": "node dist/scripts/migrate.js",
-    "test:cnft-update": "node scripts/test-cnft-update.js"
+    "test:cnft-update": "node scripts/test-cnft-update.js",
+    "test:image-gen": "tsx scripts/test-image-generation.ts"
   },
   "dependencies": {
     "@bundlr-network/client": "^0.11.17",
@@ -27,8 +28,9 @@
     "express": "^4.18.2",
     "helmet": "^7.1.0",
     "morgan": "^1.10.0",
-    "zod": "^3.25.67",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "sharp": "^0.34.5",
+    "zod": "^3.25.67"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

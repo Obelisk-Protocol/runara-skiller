@@ -8,7 +8,7 @@ export type CharacterSkill =
   // Combat Skills
   | 'attack' | 'strength' | 'defense' | 'magic' | 'projectiles' | 'vitality'
   // Gathering Skills  
-  | 'mining' | 'woodcutting' | 'fishing' | 'farming' | 'hunting'
+  | 'mining' | 'woodcutting' | 'fishing' | 'hunting'
   // Crafting Skills
   | 'smithing' | 'crafting' | 'cooking' | 'alchemy' | 'construction'
   // Unique Skills
@@ -107,7 +107,7 @@ export async function addSkillXp(
     // Combat Skills
     'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
     // Gathering Skills
-    'mining', 'woodcutting', 'fishing', 'farming', 'hunting',
+    'mining', 'woodcutting', 'fishing', 'hunting',
     // Crafting Skills
     'smithing', 'crafting', 'cooking', 'alchemy', 'construction',
     // Unique Skills
@@ -201,31 +201,24 @@ export async function addSkillXp(
         const nftsRow = await NftColumns.get(assetId)
         playerPda = nftsRow?.player_pda || null
         if (nftsRow) {
-          // CRITICAL: Load ALL skills from nft_skill_experience table to preserve all skill levels
+          // CRITICAL: Load ALL skills from nft_skill_experience table (source of truth)
           const allSkills = await getAllSkillXp(assetId)
-          const stats = NftColumns.columnsToStats(nftsRow)
-          
-          // Merge all skills from nft_skill_experience into stats (preserves all existing levels)
-          // IMPORTANT: Recalculate level from XP to ensure accuracy (don't trust stored level)
-          const s: any = { ...stats.skills }
-          console.log(`📊 [PG] Loading all skills for cNFT update. Found ${Object.keys(allSkills).length} skills`)
-          for (const [skillKey, skillData] of Object.entries(allSkills)) {
-            const sk = skillKey as CharacterSkill
-            const xp = skillData.experience
-            // Recalculate level from XP to ensure it's correct
-            const calculatedLevel = xp > 0 ? xpToLevel(xp) : 1
-            if (xp > 0) {
-              console.log(`  - ${sk}: XP=${xp}, Level=${calculatedLevel} (stored level was ${skillData.level})`)
-            }
-            s[sk] = { level: calculatedLevel, experience: xp }
-          }
+          // Use columnsToStats with skills from nft_skill_experience
+          const stats = NftColumns.columnsToStats(nftsRow, allSkills)
           
           // Update the specific skill that just leveled up
-          const currentSkillLevel = Number((s as any)[skill]?.level || 1)
+          const currentSkillLevel = Number(stats.skills[skill]?.level || 1)
           const targetLevel = Math.max(currentSkillLevel, newLevel)
-          s[skill] = { level: targetLevel, experience: newXp }
+          stats.skills[skill] = { level: targetLevel, experience: newXp }
           
-          updatedStats = { ...stats, skills: s }
+          // Recalculate combatLevel and totalLevel from updated skills
+          const totals = NftColumns.computeTotalsFromSkills(stats.skills)
+          
+          updatedStats = { 
+            ...stats, 
+            combatLevel: totals.combat_level,
+            totalLevel: totals.total_level
+          }
           await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, updatedStats)
         }
       }
@@ -241,19 +234,21 @@ export async function addSkillXp(
             playerPda = nftsRow?.player_pda || null
             if (nftsRow) {
               const allSkills = await getAllSkillXp(assetId)
-              const stats = NftColumns.columnsToStats(nftsRow)
-              const s: any = { ...stats.skills }
-              console.log(`📊 [PG] Loading all skills for cNFT update (level-up path). Found ${Object.keys(allSkills).length} skills`)
-              for (const [skillKey, skillData] of Object.entries(allSkills)) {
-                const sk = skillKey as CharacterSkill
-                const xp = skillData.experience
-                const calculatedLevel = xp > 0 ? xpToLevel(xp) : 1
-                s[sk] = { level: calculatedLevel, experience: xp }
-              }
-              const currentSkillLevel = Number((s as any)[skill]?.level || 1)
+              const stats = NftColumns.columnsToStats(nftsRow, allSkills)
+              
+              // Update the specific skill that just leveled up
+              const currentSkillLevel = Number(stats.skills[skill]?.level || 1)
               const targetLevel = Math.max(currentSkillLevel, newLevel)
-              s[skill] = { level: targetLevel, experience: newXp }
-              updatedStats = { ...stats, skills: s }
+              stats.skills[skill] = { level: targetLevel, experience: newXp }
+              
+              // Recalculate combatLevel and totalLevel from updated skills
+              const totals = NftColumns.computeTotalsFromSkills(stats.skills)
+              
+              updatedStats = { 
+                ...stats, 
+                combatLevel: totals.combat_level,
+                totalLevel: totals.total_level
+              }
               // Also update database if we're in this path
               await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, updatedStats)
             }
@@ -328,34 +323,26 @@ export async function addSkillXp(
     const nftsRow = await NftColumns.get(assetId)
     playerPda = nftsRow?.player_pda || null
     if (nftsRow) {
-      // CRITICAL: Load ALL skills from nft_skill_experience table to preserve all skill levels
+      // CRITICAL: Load ALL skills from nft_skill_experience table (source of truth)
       const allSkills = await getAllSkillXp(assetId)
-      const stats = NftColumns.columnsToStats(nftsRow)
-      
-      // Merge all skills from nft_skill_experience into stats (preserves all existing levels)
-      // IMPORTANT: Recalculate level from XP to ensure accuracy (don't trust stored level)
-      const s: any = { ...stats.skills }
-      console.log(`📊 [Supabase] Loading all skills for cNFT update. Found ${Object.keys(allSkills).length} skills`)
-      for (const [skillKey, skillData] of Object.entries(allSkills)) {
-        const sk = skillKey as CharacterSkill
-        const xp = skillData.experience
-        // Recalculate level from XP to ensure it's correct
-        const calculatedLevel = xp > 0 ? xpToLevel(xp) : 1
-        if (xp > 0) {
-          console.log(`  - ${sk}: XP=${xp}, Level=${calculatedLevel} (stored level was ${skillData.level})`)
-        }
-        s[sk] = { level: calculatedLevel, experience: xp }
-      }
+      const stats = NftColumns.columnsToStats(nftsRow, allSkills)
       
       // Update the specific skill that just leveled up
-      const currentSkillLevel = Number((s as any)[skill]?.level || 1)
+      const currentSkillLevel = Number(stats.skills[skill]?.level || 1)
       const targetLevel = Math.max(currentSkillLevel, computedLevel)
-      s[skill] = { level: targetLevel, experience: nextXp }
+      stats.skills[skill] = { level: targetLevel, experience: nextXp }
       
-      updatedStats = { ...stats, skills: s }
-      console.log(`📊 [Supabase] Final stats for cNFT update: ${skill}=${targetLevel}, woodcutting=${s.woodcutting?.level || 1}, mining=${s.mining?.level || 1}`)
+      // Recalculate combatLevel and totalLevel from updated skills
+      const totals = NftColumns.computeTotalsFromSkills(stats.skills)
       
-      // Update database
+      updatedStats = { 
+        ...stats, 
+        combatLevel: totals.combat_level,
+        totalLevel: totals.total_level
+      }
+      console.log(`📊 [Supabase] Final stats for cNFT update: ${skill}=${targetLevel}, combatLevel=${totals.combat_level}, totalLevel=${totals.total_level}`)
+      
+      // Update database (only metadata now, skills are in nft_skill_experience)
       await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, updatedStats)
     }
   }
@@ -371,19 +358,21 @@ export async function addSkillXp(
         playerPda = nftsRow?.player_pda || null
         if (nftsRow) {
           const allSkills = await getAllSkillXp(assetId)
-          const stats = NftColumns.columnsToStats(nftsRow)
-          const s: any = { ...stats.skills }
-          console.log(`📊 [Supabase] Loading all skills for cNFT update (level-up path). Found ${Object.keys(allSkills).length} skills`)
-          for (const [skillKey, skillData] of Object.entries(allSkills)) {
-            const sk = skillKey as CharacterSkill
-            const xp = skillData.experience
-            const calculatedLevel = xp > 0 ? xpToLevel(xp) : 1
-            s[sk] = { level: calculatedLevel, experience: xp }
-          }
-          const currentSkillLevel = Number((s as any)[skill]?.level || 1)
+          const stats = NftColumns.columnsToStats(nftsRow, allSkills)
+          
+          // Update the specific skill that just leveled up
+          const currentSkillLevel = Number(stats.skills[skill]?.level || 1)
           const targetLevel = Math.max(currentSkillLevel, computedLevel)
-          s[skill] = { level: targetLevel, experience: nextXp }
-          updatedStats = { ...stats, skills: s }
+          stats.skills[skill] = { level: targetLevel, experience: nextXp }
+          
+          // Recalculate combatLevel and totalLevel from updated skills
+          const totals = NftColumns.computeTotalsFromSkills(stats.skills)
+          
+          updatedStats = { 
+            ...stats, 
+            combatLevel: totals.combat_level,
+            totalLevel: totals.total_level
+          }
           // Also update database if we're in this path
           await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, updatedStats)
         }
@@ -391,9 +380,26 @@ export async function addSkillXp(
       
       if (updatedStats) {
         console.log(`🔄 [Supabase] Updating cNFT for skill level up: ${skill} -> level ${computedLevel} (was ${currentLevel})`)
+        
+        // Update URI (includes full metadata with new skill levels)
         const cnftResult = await updateCharacterCNFT(assetId, updatedStats, playerPda || undefined)
         if (cnftResult.success) {
-          console.log(`✅ [Supabase] cNFT updated successfully for ${skill} level up to level ${computedLevel}`)
+          console.log(`✅ [Supabase] cNFT URI updated successfully for ${skill} level up to level ${computedLevel}`)
+          
+          // CRITICAL: Also update on-chain name to reflect new combat level
+          // URI update doesn't change the on-chain name field, so we need a separate name update
+          try {
+            const { updateCNFTNameOnly } = await import('./cnft');
+            const nameResult = await updateCNFTNameOnly(assetId, updatedStats.name, playerPda || undefined);
+            if (nameResult.success) {
+              console.log(`✅ [Supabase] cNFT name updated on-chain to reflect new level: ${nameResult.signature}`);
+            } else {
+              console.warn(`⚠️ [Supabase] Failed to update cNFT name after level up: ${nameResult.error}`);
+            }
+          } catch (nameErr) {
+            console.warn(`⚠️ [Supabase] Error updating cNFT name after level up:`, nameErr);
+            // Don't fail the whole operation - URI update succeeded
+          }
         } else {
           console.warn(`⚠️ [Supabase] Failed to update cNFT: ${cnftResult.error}`)
         }
@@ -442,7 +448,6 @@ export async function getAllSkillXp(assetId: string): Promise<Record<CharacterSk
     mining: { experience: 0, level: 1 },
     woodcutting: { experience: 0, level: 1 },
     fishing: { experience: 0, level: 1 },
-    farming: { experience: 0, level: 1 },
     hunting: { experience: 0, level: 1 },
     smithing: { experience: 0, level: 1 },
     cooking: { experience: 0, level: 1 },
@@ -456,7 +461,11 @@ export async function getAllSkillXp(assetId: string): Promise<Record<CharacterSk
   if (!error && Array.isArray(data)) {
     for (const row of data as any[]) {
       const sk = row.skill as CharacterSkill
-      init[sk] = { experience: Number(row.experience || 0), level: Number(row.level || 1) }
+      const xp = Number(row.experience || 0)
+      // CRITICAL: Always calculate level from XP to ensure accuracy
+      // Don't trust stored level - it might be stale
+      const calculatedLevel = xp > 0 ? xpToLevel(xp) : 1
+      init[sk] = { experience: xp, level: calculatedLevel }
     }
   }
   return init

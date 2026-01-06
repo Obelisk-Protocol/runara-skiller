@@ -76,6 +76,7 @@ export function getMissingSkills(character: CharacterData): string[] {
 }
 
 // Calculate combat level from 6 combat skills
+// Combat Level = average of Attack, Strength, Defense, Magic, Projectiles, Vitality
 export function calculateCombatLevel(skills: Record<string, SkillData>): number {
   const attack = skills.attack?.level || 1;
   const strength = skills.strength?.level || 1;
@@ -84,23 +85,8 @@ export function calculateCombatLevel(skills: Record<string, SkillData>): number 
   const projectiles = skills.projectiles?.level || 1;
   const vitality = skills.vitality?.level || 1;
 
-  // Melee combat level
-  const meleeCombat = (attack + strength + defense) / 3;
-  
-  // Magic combat level  
-  const magicCombat = (magic * 1.5 + defense) / 2.5;
-  
-  // Projectile combat level
-  const projectileCombat = (projectiles + defense) / 2;
-  
-  // Take the highest combat style
-  const primaryCombat = Math.max(meleeCombat, magicCombat, projectileCombat);
-  
-  // Add vitality bonus (health is always important)
-  const vitalityBonus = vitality * 0.25;
-  
-  // Final combat level (only from combat skills)
-  return Math.floor(primaryCombat + vitalityBonus);
+  // Combat Level = floor((Attack + Strength + Defense + Magic + Projectiles + Vitality) / 6)
+  return Math.floor((attack + strength + defense + magic + projectiles + vitality) / 6);
 }
 
 // Calculate total level (sum of all skills)

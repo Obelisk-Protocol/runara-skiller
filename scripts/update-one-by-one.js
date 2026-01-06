@@ -23,7 +23,7 @@ async function updateSingleCNFT(assetId, name, index, total) {
         assetId: assetId,
         characterStats: {
           name: name,
-          combatLevel: 3,
+          combatLevel: 1, // Default: all 6 combat skills at level 1 = (1+1+1+1+1+1)/6 = 1
           totalLevel: 18, // 18 skills at level 1
           version: "1.0.0",
           experience: 100,

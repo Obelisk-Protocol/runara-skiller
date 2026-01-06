@@ -2,9 +2,15 @@ import { CharacterStats, Character } from '../types/character';
 import { createCharacterCNFT, updateCharacterCNFT, fetchCharacterFromCNFT, generateDefaultCharacterStats } from './cnft';
 import { SkillDatabase, NftColumns } from './database';
 
-// Calculate combat level (Attack + Strength + Defense)
+// Calculate combat level (average of Attack, Strength, Defense, Magic, Projectiles, Vitality)
 export function calculateCombatLevel(skills: CharacterStats['skills']): number {
-  return skills.attack.level + skills.strength.level + skills.defense.level;
+  const attack = skills.attack?.level ?? 1
+  const strength = skills.strength?.level ?? 1
+  const defense = skills.defense?.level ?? 1
+  const magic = skills.magic?.level ?? 1
+  const projectiles = skills.projectiles?.level ?? 1
+  const vitality = skills.vitality?.level ?? 1
+  return Math.floor((attack + strength + defense + magic + projectiles + vitality) / 6)
 }
 
 // Calculate total level (sum of all skills)
@@ -86,7 +92,7 @@ export class CharacterService {
         // If DB row exists, prefer it for return to avoid any gateway lag
         const row = await NftColumns.get(assetId)
         if (row) {
-          const stats = NftColumns.columnsToStats(row)
+          const stats = await NftColumns.columnsToStatsWithSkills(row)
           return { id: assetId, characterStats: stats, lastSynced: new Date(row.updated_at) }
         }
         return cnftCharacter;
@@ -95,7 +101,8 @@ export class CharacterService {
       // Fallback to column store if chain read fails
       const row = await NftColumns.get(assetId)
       if (row) {
-        const stats = NftColumns.columnsToStats(row)
+        // Always fetch skills from nft_skill_experience (source of truth)
+        const stats = await NftColumns.columnsToStatsWithSkills(row)
         return { id: assetId, characterStats: stats, lastSynced: new Date(row.updated_at) }
       }
       
@@ -125,31 +132,19 @@ export class CharacterService {
         };
       }
       // Determine baseline from BOTH chain and DB so chain lag doesn't cap at 2
-      const dbRow = await NftColumns.get(assetId);
-      const dbLevelMap: Partial<Record<keyof CharacterStats['skills'], number>> | null = dbRow
-        ? {
-            attack: dbRow.attack,
-            strength: dbRow.strength,
-            defense: dbRow.defense,
-            magic: dbRow.magic,
-            projectiles: dbRow.projectiles,
-            vitality: dbRow.vitality,
-            crafting: dbRow.crafting,
-            luck: dbRow.luck,
-            mining: dbRow.mining,
-            woodcutting: dbRow.woodcutting,
-            fishing: dbRow.fishing,
-            farming: dbRow.farming,
-            hunting: dbRow.hunting,
-            smithing: dbRow.smithing,
-            cooking: dbRow.cooking,
-            alchemy: dbRow.alchemy,
-            construction: dbRow.construction,
-          }
-        : null;
+      // CRITICAL: Get skill levels from nft_skill_experience table (source of truth)
+      const { getAllSkillXp } = await import('./nft-skill-experience');
+      const skillXp = await getAllSkillXp(assetId);
+      const dbLevelMap: Partial<Record<keyof CharacterStats['skills'], number>> = {};
+      
+      // Extract levels from skill XP data
+      for (const [skill, data] of Object.entries(skillXp)) {
+        const skillKey = skill as keyof CharacterStats['skills'];
+        dbLevelMap[skillKey] = data.level;
+      }
 
       const chainLevel = character.characterStats.skills[skillName]?.level ?? 1;
-      const dbLevel = dbLevelMap?.[skillName] ?? 1;
+      const dbLevel = dbLevelMap[skillName] ?? 1;
       const currentLevel = Math.max(chainLevel, dbLevel, 1);
       const SKILL_CAP = 99;
       const nextLevel = Math.min(currentLevel + 1, SKILL_CAP);
