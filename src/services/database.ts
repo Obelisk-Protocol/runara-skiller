@@ -419,7 +419,8 @@ export class NftState {
         total_level: stats.totalLevel,
         version: stats.version,
         skills: stats.skills as any,
-        last_arweave_uri: lastArweaveUri ?? null,
+        // last_arweave_uri is deprecated - kept for backward compatibility but not used
+        last_arweave_uri: null,
         last_update_sig: lastSig ?? null,
         updated_at: new Date().toISOString(),
       } as any;
@@ -664,7 +665,8 @@ export class NftColumns {
       player_pda: playerPda,
       ...merged,
       ...totals,
-      last_arweave_uri: lastUri ?? existing?.last_arweave_uri ?? null,
+      // last_arweave_uri is deprecated - kept for backward compatibility but not used
+      last_arweave_uri: null,
       last_update_sig: lastSig ?? existing?.last_update_sig ?? null,
       updated_at: new Date().toISOString(),
     }
@@ -688,7 +690,7 @@ export class NftColumns {
             combat_level = excluded.combat_level,
             total_level = excluded.total_level,
             version = excluded.version,
-            last_arweave_uri = coalesce(excluded.last_arweave_uri, nfts.last_arweave_uri),
+            last_arweave_uri = null, -- Deprecated: kept for backward compatibility
             last_update_sig = coalesce(excluded.last_update_sig, nfts.last_update_sig),
             updated_at = excluded.updated_at,
             state_version = nfts.state_version + 1
@@ -756,7 +758,7 @@ export class NftColumns {
               combat_level = excluded.combat_level,
               total_level = excluded.total_level,
               version = excluded.version,
-              last_arweave_uri = excluded.last_arweave_uri,
+              last_arweave_uri = null, -- Deprecated: kept for backward compatibility
               last_update_sig = excluded.last_update_sig,
               updated_at = excluded.updated_at,
               state_version = nfts.state_version + 1
@@ -784,7 +786,8 @@ export class NftColumns {
         player_pda: playerPda,
         ...cols,
         ...totals,
-        last_arweave_uri: lastUri ?? null,
+        // last_arweave_uri is deprecated - kept for backward compatibility but not used
+        last_arweave_uri: null,
         last_update_sig: lastSig ?? null,
         updated_at: new Date().toISOString(),
       }

@@ -2,10 +2,13 @@ import { Router } from 'express';
 import { getDasUrl, getRpcUrl } from '../config/solana';
 import crypto from 'crypto'
 import { z } from 'zod';
-import { createCharacterCNFT, updateCharacterCNFT, updateCNFTNameOnly, fetchCharacterFromCNFT, findLatestAssetIdForOwner, getAssetMetadataDebug, generateDefaultCharacterStats } from '../services/cnft';
+import { createCharacterCNFT, updateCharacterCNFT, updateCNFTNameOnly, fetchCharacterFromCNFT, findLatestAssetIdForOwner, getAssetMetadataDebug, generateDefaultCharacterStats, repairNFTMetadataURI } from '../services/cnft';
 import { CharacterService } from '../services/character';
 import { MetadataStore, NftColumns } from '../services/database';
 import { supabase } from '../config/database';
+import { generateCharacterImage } from '../services/character-image-generator';
+import { saveCharacterImage } from '../services/image-storage';
+import { loadCharacterImageData } from '../services/character-data-loader';
 
 const router = Router();
 
@@ -296,35 +299,15 @@ router.post('/create', async (req: any, res: any) => {
     const result = await createCharacterCNFT(playerPDA, characterName);
     
     if (result.success) {
-      // Try to resolve assetId immediately if missing using Helius (fast) or RPC log heuristic
-      let resolvedId: string | undefined = result.assetId
-      if (!resolvedId && (result as any).signature) {
-        try {
-          const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 8080}`).replace(/\/$/, '')
-          // Prefer Helius resolver
-          const hRes = await fetch(`${base}/api/das/resolve-from-signature`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ signature: (result as any).signature, playerPDA })
-          })
-          const hJson: any = await hRes.json().catch(() => ({}))
-          if (hRes.ok && hJson?.assetId) {
-            resolvedId = hJson.assetId
-            console.log('🆔 Immediate resolve via Helius in route:', resolvedId)
-          } else {
-            // Fall back to RPC log heuristic
-            const xRes = await fetch(`${base}/api/das/extract-asset-id`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ signature: (result as any).signature, playerPDA })
-            })
-            const xJson: any = await xRes.json().catch(() => ({}))
-            if (xRes.ok && xJson?.assetId) {
-              resolvedId = xJson.assetId
-              console.log('🆔 Immediate resolve via RPC heuristic in route:', resolvedId)
-            }
-          }
-        } catch (e) {
-          console.warn('⚠️ Immediate resolve failed in route:', e)
-        }
+      // Asset ID must be resolved by createCharacterCNFT - no fallbacks
+      const resolvedId: string | undefined = result.assetId
+      
+      if (!resolvedId) {
+        console.error('❌ createCharacterCNFT did not return assetId - local derivation failed');
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to derive asset ID. Transaction may not be confirmed yet.'
+        });
       }
 
       // Update Supabase with the asset ID (slot 1 if empty)
@@ -392,61 +375,6 @@ router.post('/create', async (req: any, res: any) => {
         } catch (supabaseError) {
           console.error('⚠️ Supabase update error:', supabaseError);
         }
-      } else {
-        // Background resolve + save once DAS returns the real assetId
-        (async () => {
-          try {
-            console.log('⏳ Background DAS resolve for Supabase save...');
-            const timeoutMs = Number(process.env.DAS_BACKGROUND_TIMEOUT_MS || 120000);
-            const intervalMs = Number(process.env.DAS_BACKGROUND_INTERVAL_MS || 5000);
-            const start = Date.now();
-            let resolved: string | null = null;
-            while (Date.now() - start < timeoutMs) {
-              resolved = await findLatestAssetIdForOwner(playerPDA);
-              if (resolved) break;
-              await new Promise(r => setTimeout(r, intervalMs));
-            }
-            if (!resolved) {
-              console.warn('⚠️ Background resolve timed out; nothing saved to Supabase');
-              return;
-            }
-            // Seed DB row too
-            try {
-              const seedStats = generateDefaultCharacterStats(characterName)
-              await NftColumns.upsertMergeMaxFromStats(resolved, playerPDA, seedStats, null, (result as any)?.signature || null)
-            } catch (seedErr) {
-              console.warn('⚠️ Background seed nfts row failed:', seedErr)
-            }
-            const { data: profile, error: fetchError } = await supabase
-              .from('profiles')
-              .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
-              .eq('player_pda', playerPDA)
-              .single();
-            if (fetchError) {
-              console.error('⚠️ Background Supabase fetch error:', fetchError);
-              return;
-            }
-            if (!profile) return;
-            const updateData: any = {};
-            if (!profile.character_cnft_1) updateData.character_cnft_1 = resolved;
-            else if (!profile.character_cnft_2) updateData.character_cnft_2 = resolved;
-            else if (!profile.character_cnft_3) updateData.character_cnft_3 = resolved;
-            else if (!profile.character_cnft_4) updateData.character_cnft_4 = resolved;
-            else if (!profile.character_cnft_5) updateData.character_cnft_5 = resolved;
-            if (Object.keys(updateData).length === 0) {
-              console.log('ℹ️ Background resolve: all character slots full; skipping save');
-              return;
-            }
-            const { error: updateError } = await supabase
-              .from('profiles')
-              .update(updateData)
-              .eq('player_pda', playerPDA);
-            if (updateError) console.error('⚠️ Background Supabase update error:', updateError);
-            else console.log('✅ Background saved resolved assetId to Supabase:', resolved);
-          } catch (bgErr) {
-            console.error('⚠️ Background resolve/save error:', bgErr);
-          }
-        })();
       }
       
       res.json({
@@ -789,6 +717,283 @@ router.post('/:assetId/add-skill-xp', async (req: any, res: any) => {
     return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' })
   }
 })
+
+// POST /api/characters/:assetId/update-metadata-image - Force update metadata with image from database
+router.post('/:assetId/update-metadata-image', async (req: any, res: any) => {
+  try {
+    const { assetId } = req.params;
+    
+    console.log(`🔄 Force updating metadata image for: ${assetId}`);
+    
+    // Get image URL from nfts table
+    const { data: nftRow, error: nftError } = await supabase
+      .from('nfts')
+      .select('character_image_url, name')
+      .eq('asset_id', assetId)
+      .single();
+    
+    if (nftError || !nftRow) {
+      return res.status(404).json({
+        success: false,
+        error: 'NFT not found in database'
+      });
+    }
+    
+    if (!nftRow.character_image_url) {
+      return res.status(400).json({
+        success: false,
+        error: 'No image URL found in database. Generate image first using /api/characters/:assetId/generate-image'
+      });
+    }
+    
+    // Get current metadata
+    const { data: metadataRow } = await supabase
+      .from('nft_metadata')
+      .select('metadata_json')
+      .eq('asset_id', assetId)
+      .single();
+    
+    if (!metadataRow) {
+      return res.status(404).json({
+        success: false,
+        error: 'Metadata not found. Create metadata first.'
+      });
+    }
+    
+    // Update metadata JSON with image URL
+    const updatedMetadata = {
+      ...metadataRow.metadata_json,
+      image: nftRow.character_image_url,
+      properties: {
+        ...metadataRow.metadata_json.properties,
+        files: [{ uri: nftRow.character_image_url, type: 'image/png' }]
+      }
+    };
+    
+    // Save updated metadata
+    const { error: updateError } = await supabase
+      .from('nft_metadata')
+      .update({ metadata_json: updatedMetadata })
+      .eq('asset_id', assetId);
+    
+    if (updateError) {
+      throw updateError;
+    }
+    
+    console.log(`✅ Updated metadata with image: ${nftRow.character_image_url}`);
+    
+    res.json({
+      success: true,
+      imageUrl: nftRow.character_image_url,
+      message: 'Metadata image updated successfully'
+    });
+  } catch (error) {
+    console.error('❌ Update metadata image error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update metadata image'
+    });
+  }
+});
+
+// POST /api/characters/:assetId/repair-metadata - Repair NFT metadata URI
+router.post('/:assetId/repair-metadata', async (req: any, res: any) => {
+  try {
+    const { assetId } = req.params;
+    const { playerPDA } = req.body || {};
+    
+    console.log(`🔧 Repairing metadata URI for assetId: ${assetId}`);
+    
+    const result = await repairNFTMetadataURI(assetId, playerPDA);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        signature: result.signature,
+        message: 'Metadata URI repaired successfully'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error || 'Failed to repair metadata URI'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Repair metadata error:', error);
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Invalid request'
+    });
+  }
+});
+
+// GET /api/characters/metadata/:assetId - Serve NFT metadata JSON
+router.get('/metadata/:identifier', async (req: any, res: any) => {
+  try {
+    const { identifier } = req.params;
+    
+    // First try to find by assetId (for legacy URIs)
+    let { data, error } = await supabase
+      .from('nft_metadata')
+      .select('metadata_json')
+      .eq('asset_id', identifier)
+      .single();
+    
+    // Track nftRow for image URL lookup (also fetch image URL when looking up by assetId)
+    let nftRow: any = null;
+    
+    // If found by assetId, also fetch the nft row for image URL
+    if (!error && data) {
+      const { data: nftData } = await supabase
+        .from('nfts')
+        .select('asset_id, name, character_image_url')
+        .eq('asset_id', identifier)
+        .maybeSingle();
+      
+      if (nftData) {
+        nftRow = nftData;
+      }
+    }
+    
+    // If not found, try to find by character name (URL-safe version)
+    if (error || !data) {
+      // Convert URL-safe name back: hyphens -> spaces, capitalize first letter of each word
+      const nameFromUrl = identifier.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
+      
+      // Look up in nfts table by name (case-insensitive)
+      const { data: nftRowData } = await supabase
+        .from('nfts')
+        .select('asset_id, name, character_image_url')
+        .ilike('name', nameFromUrl)
+        .limit(1)
+        .maybeSingle();
+      
+      if (nftRowData?.asset_id) {
+        nftRow = nftRowData;
+        // Found by name, now get metadata by assetId
+        const { data: metadataData } = await supabase
+          .from('nft_metadata')
+          .select('metadata_json')
+          .eq('asset_id', nftRow.asset_id)
+          .single();
+        
+        if (metadataData) {
+          data = metadataData;
+          error = null;
+        }
+      }
+    }
+    
+    // If still not found and identifier is "pending", try to find any pending metadata
+    if ((error || !data) && identifier === 'pending') {
+      const { data: pendingData } = await supabase
+        .from('nft_metadata')
+        .select('metadata_json')
+        .eq('asset_id', 'pending')
+        .single();
+      
+      if (pendingData) {
+        data = pendingData;
+        error = null;
+      }
+    }
+    
+    if (error || !data) {
+      console.warn(`⚠️ Metadata not found for identifier: ${identifier}`);
+      return res.status(404).json({ error: 'Metadata not found' });
+    }
+    
+    // Ensure image URL is included in metadata
+    // Get image URL from nfts table if not in metadata_json
+    let metadataJson = data.metadata_json;
+    let assetIdForImage = identifier;
+    
+    // If we found by name lookup, we already have the assetId from nftRow
+    // Otherwise, try to get assetId from nfts table if identifier is a name
+    if (nftRow?.asset_id) {
+      assetIdForImage = nftRow.asset_id;
+    }
+    
+    // Fetch image URL from nfts table (use nftRow if available, otherwise query)
+    let imageUrl: string | null = null;
+    if (nftRow?.character_image_url) {
+      imageUrl = nftRow.character_image_url;
+    } else {
+      const { data: nftData } = await supabase
+        .from('nfts')
+        .select('character_image_url')
+        .eq('asset_id', assetIdForImage)
+        .maybeSingle();
+      
+      imageUrl = nftData?.character_image_url || null;
+    }
+    
+    // Ensure image field exists in metadata (handle empty strings too)
+    if ((!metadataJson.image || metadataJson.image === '') && imageUrl) {
+      metadataJson = {
+        ...metadataJson,
+        image: imageUrl,
+        properties: {
+          ...metadataJson.properties,
+          files: imageUrl ? [{ uri: imageUrl, type: 'image/png' }] : (metadataJson.properties?.files || [])
+        }
+      };
+      console.log(`✅ Added image URL to metadata: ${imageUrl}`);
+    } else if (!metadataJson.image || metadataJson.image === '') {
+      // Image is missing - generate it automatically
+      console.log(`🔄 Image missing for ${identifier}, generating automatically...`);
+      try {
+        // Load character data for image generation
+        const characterData = await loadCharacterImageData(assetIdForImage);
+        
+        // Generate the image
+        const imageBuffer = await generateCharacterImage({
+          customization: characterData.customization,
+          includeBackground: false
+        });
+        
+        // Save the image
+        const generatedImageUrl = await saveCharacterImage(assetIdForImage, imageBuffer, true);
+        console.log(`✅ Generated and saved image: ${generatedImageUrl}`);
+        
+        // Update database with image URL
+        await supabase
+          .from('nfts')
+          .update({ character_image_url: generatedImageUrl })
+          .eq('asset_id', assetIdForImage);
+        
+        // Update metadata JSON with the new image URL
+        metadataJson = {
+          ...metadataJson,
+          image: generatedImageUrl,
+          properties: {
+            ...metadataJson.properties,
+            files: [{ uri: generatedImageUrl, type: 'image/png' }]
+          }
+        };
+        
+        // Also update the metadata in the database
+        await supabase
+          .from('nft_metadata')
+          .update({ metadata_json: metadataJson })
+          .eq('asset_id', assetIdForImage);
+        
+        console.log(`✅ Auto-generated image and updated metadata`);
+      } catch (genError) {
+        console.error(`❌ Failed to auto-generate image:`, genError);
+        // Continue without image - at least return the metadata
+      }
+    }
+    
+    // Return the metadata JSON
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(metadataJson);
+  } catch (error) {
+    console.error('❌ Error serving metadata:', error);
+    res.status(500).json({ error: 'Failed to serve metadata' });
+  }
+});
 
 // GET /api/characters/:assetId
 router.get('/:assetId', async (req: any, res: any) => {

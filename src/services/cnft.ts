@@ -5,7 +5,9 @@ import {
   transfer,
   burn,
   delegate,
-  mplBubblegum
+  mplBubblegum,
+  findLeafAssetIdPda,
+  parseLeafFromMintToCollectionV1Transaction
 } from '@metaplex-foundation/mpl-bubblegum';
 import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { 
@@ -20,8 +22,12 @@ import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { umi, serverSigner, COLLECTION_MINT, MERKLE_TREE, getDasUrl, getRpcUrl } from '../config/solana';
 import { CharacterStats, Character } from '../types/character';
-import { uploadJsonToArweave } from './storage';
+// Removed Arweave - using Supabase Storage and database instead
 import { NftColumns } from './database';
+import { generateCharacterImage } from './character-image-generator';
+import { getDefaultCustomization } from '../types/character-customization';
+import { saveCharacterImage } from './image-storage';
+import { supabase } from '../config/database';
 
 // Resolve default character image URL
 function resolveDefaultCharacterImageUrl(seedName?: string): string {
@@ -164,7 +170,7 @@ export async function findLatestAssetIdForOwner(ownerAddress: string): Promise<s
   }
 }
 
-async function pollForAssetIdViaDAS(
+export async function pollForAssetIdViaDAS(
   ownerAddress: string,
   timeoutMs: number = Number(process.env.DAS_RESOLVE_TIMEOUT_MS || 60000),
   intervalMs: number = Number(process.env.DAS_RESOLVE_INTERVAL_MS || 3000)
@@ -184,23 +190,41 @@ export async function createCharacterCNFT(
   characterName: string
 ): Promise<{ success: boolean; assetId?: string; signature?: string; error?: string }> {
   try {
-    console.log('🎯 Creating character cNFT for:', playerPDA);
-    
     // Generate character stats
     const characterStats = generateDefaultCharacterStats(characterName);
     
-    // Build Metaplex JSON and upload to Arweave
-    const imageUrl = resolveDefaultCharacterImageUrl(characterName)
-    console.log('[IMG] createCharacterCNFT imageUrl', imageUrl)
+    // Generate character image
+    console.log('🎨 Generating character image...');
+    const defaultCustomization = getDefaultCustomization();
+    const imageBuffer = await generateCharacterImage({
+      customization: defaultCustomization,
+      includeBackground: false
+    });
+    console.log(`✅ Generated character image: ${imageBuffer.length} bytes`);
+    
+    // Upload image to Supabase Storage (faster and more reliable than Arweave)
+    console.log('📤 Uploading character image to Supabase Storage...');
+    let imageUrl: string;
+    try {
+      // Use a temporary ID for now, we'll update it after we get the assetId
+      const tempId = `temp-${Date.now()}`;
+      imageUrl = await saveCharacterImage(tempId, imageBuffer, true);
+      console.log(`✅ Uploaded character image to Supabase Storage: ${imageUrl}`);
+    } catch (uploadError) {
+      console.error('❌ Failed to upload image to Supabase Storage:', uploadError);
+      throw new Error(`Image upload failed: ${uploadError instanceof Error ? uploadError.message : String(uploadError)}`);
+    }
+    
+    // Build metadata JSON with image URL
     const jsonPayload = {
-      name: characterName, // Just the character name, no level suffix
+      name: characterName,
       symbol: 'PLAYER',
       description: `Character with ${characterStats.totalLevel} total skill levels`,
       image: imageUrl,
       external_url: 'https://obeliskparadox.com',
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
-        { trait_type: 'Level', value: characterStats.combatLevel.toString() }, // Changed from "Combat Level" to "Level"
+        { trait_type: 'Level', value: characterStats.combatLevel.toString() },
         { trait_type: 'Total Level', value: characterStats.totalLevel.toString() },
         { trait_type: 'Attack', value: characterStats.skills.attack.level.toString() },
         { trait_type: 'Strength', value: characterStats.skills.strength.level.toString() },
@@ -220,19 +244,44 @@ export async function createCharacterCNFT(
         { trait_type: 'Construction', value: characterStats.skills.construction.level.toString() }
       ],
       properties: {
-        files: [ { uri: imageUrl, type: imageUrl.endsWith('.png') ? 'image/png' : 'image/svg+xml' } ]
+        files: [ { uri: imageUrl, type: 'image/png' } ]
       }
-    }
-    const { uri: metadataUri } = await uploadJsonToArweave(jsonPayload)
-    console.log('[IMG] createCharacterCNFT metadataUri', metadataUri)
+    };
     
-    // Build Metaplex standard metadata (exactly like frontend)
-    const displayName = characterName; // Just the character name, no level suffix
+    // Store metadata in database (no Arweave - faster and more reliable)
+    // We'll use a metadata URL that points to our API endpoint
+    // Use official domain with shorter path for Solana transaction size limits
+    // The Next.js app will proxy /metadata/* to the Railway backend
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
+    // Create URL-safe name: lowercase, spaces -> hyphens, remove special chars
+    const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const metadataUri = `${backendBase}/metadata/${urlSafeName}`;
+    console.log(`✅ Using metadata URL: ${metadataUri}`);
+    
+    // Store metadata in database for API endpoint to serve
+    try {
+      await supabase
+        .from('nft_metadata')
+        .upsert({
+          asset_id: 'pending', // Will be updated after mint
+          metadata_json: jsonPayload,
+          created_at: new Date().toISOString()
+        }, {
+          onConflict: 'asset_id'
+        });
+      console.log('✅ Stored metadata in database');
+    } catch (metaErr) {
+      console.warn('⚠️ Failed to store metadata in database (non-fatal):', metaErr);
+    }
+    
+    // Build Metaplex standard metadata
+    // Note: metadataUri will be updated after minting with the correct assetId
+    const displayName = characterName;
     
     const metadata = {
       name: displayName,
       symbol: 'PLAYER',
-      uri: metadataUri,
+      uri: metadataUri, // Temporary URI, will be updated after mint
       sellerFeeBasisPoints: 500,
       collection: { key: publicKey(COLLECTION_MINT), verified: false },
       creators: [
@@ -244,50 +293,199 @@ export async function createCharacterCNFT(
       ]
     };
 
-    // Mint the cNFT (exactly like frontend)
-    console.log('🌱 Minting character cNFT...');
+    // Mint the cNFT - NO FALLBACKS, processed commitment only
     const mintTx = await mintToCollectionV1(umi, {
       leafOwner: publicKey(playerPDA),
       leafDelegate: serverSigner.publicKey,
       merkleTree: publicKey(MERKLE_TREE),
       collectionMint: publicKey(COLLECTION_MINT),
       metadata
-    }).sendAndConfirm(umi);
+    }).sendAndConfirm(umi, {
+      confirm: { commitment: 'processed' }
+    });
 
-    console.log('✅ Character cNFT minted successfully');
-    // Ensure we have a base58 signature string (Umi may return Uint8Array)
+    // Extract signature immediately
     const rawSig: any = (mintTx as any)?.signature
     let mintSignature = ''
-    try {
       if (typeof rawSig === 'string') mintSignature = rawSig
       else if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
         const bs58 = require('bs58')
         mintSignature = bs58.encode(Uint8Array.from(rawSig))
       }
-    } catch {}
-    console.log('🔗 Transaction:', mintSignature || rawSig);
     
-    // Try fast path: resolve via Helius enhanced transactions
-    let resolvedAssetId: string | null = null;
-    const heliusFast = await resolveAssetIdViaHelius(mintSignature)
-    if (heliusFast) {
-      console.log('🆔 Resolved asset ID via Helius:', heliusFast)
-      resolvedAssetId = heliusFast
-    } else {
-      // Fallback: short DAS poll (do not block for long)
-      try {
-        console.log('⏳ Helius failed or not configured. Short DAS poll...')
-        resolvedAssetId = await pollForAssetIdViaDAS(playerPDA, Number(process.env.DAS_RESOLVE_TIMEOUT_MS || 15000), Number(process.env.DAS_RESOLVE_INTERVAL_MS || 3000))
-        if (resolvedAssetId) console.log('🆔 Resolved asset ID via DAS:', resolvedAssetId)
-        else console.warn('⚠️ Could not resolve asset ID via DAS within timeout')
-      } catch (e) {
-        console.warn('⚠️ Asset ID resolution failed:', e)
+    if (!mintSignature) {
+      throw new Error('Failed to extract transaction signature');
+    }
+    
+    // Extract asset ID from transaction logs
+    // Note: Even with processed commitment, transaction may need a moment to be queryable
+    const rpcUrl = getRpcUrl();
+    if (!rpcUrl) {
+      throw new Error('RPC URL not configured');
+    }
+    
+    // Fetch transaction - try processed first, then confirmed if needed
+    let tx = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const commitment = attempt === 0 ? 'processed' : 'confirmed';
+      const txRes = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'getTransaction',
+          method: 'getTransaction',
+          params: [mintSignature, { commitment, maxSupportedTransactionVersion: 0 }]
+        })
+      });
+      
+      const txJson: any = await txRes.json();
+      tx = txJson?.result;
+      
+      if (tx) break;
+      
+      // Small delay only if first attempt failed
+      if (attempt === 0) {
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
+    }
+    
+    if (!tx) {
+      throw new Error('Transaction not found - cannot derive asset ID');
+    }
+    
+    // Extract asset ID directly from logs
+    const logs: string[] = tx?.meta?.logMessages || [];
+    let resolvedAssetId: string | null = null;
+    
+    // Extract asset ID from "Leaf asset ID: <address>" log
+    for (const log of logs) {
+      const match = String(log).match(/Leaf\s+asset\s+ID[:\s]+([A-Za-z0-9]{32,44})/i);
+      if (match && match[1]) {
+        const candidate = match[1].trim();
+        if (candidate.length >= 32 && candidate.length <= 44 && /^[A-Za-z0-9]+$/.test(candidate)) {
+          resolvedAssetId = candidate;
+          break;
+        }
+      }
+    }
+    
+    // Fallback: extract leafIndex and derive PDA
+    if (!resolvedAssetId) {
+      let leafIndex: number | null = null;
+      for (const log of logs) {
+        const match = String(log).match(/leaf.*?index.*?(\d+)|index.*?(\d+).*?leaf|nonce.*?(\d+)/i);
+        if (match) {
+          leafIndex = parseInt(match[1] || match[2] || match[3]);
+          if (leafIndex !== null) break;
+        }
+      }
+      
+      if (leafIndex !== null) {
+        const assetIdPda = findLeafAssetIdPda(umi, {
+          merkleTree: publicKey(MERKLE_TREE),
+          leafIndex: BigInt(leafIndex),
+        });
+        resolvedAssetId = assetIdPda.toString();
+      }
+    }
+    
+    if (!resolvedAssetId) {
+      throw new Error('Could not extract asset ID from transaction logs');
+    }
+    
+    // Re-upload image with correct assetId filename, then save to database
+    try {
+      // Re-upload image with assetId as filename (for better organization)
+      const correctImageUrl = await saveCharacterImage(resolvedAssetId, imageBuffer, true);
+      console.log(`✅ Re-uploaded image with assetId filename: ${correctImageUrl}`);
+      
+      // Update metadata in database with correct assetId and final metadata URI
+      // Use character name in URI (like Arweave) - much shorter than assetId
+      // The Next.js app will proxy /metadata/* to the Railway backend
+      const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
+      // Create URL-safe name: lowercase, spaces -> hyphens, remove special chars
+      const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const finalMetadataUri = `${backendBase}/metadata/${urlSafeName}`;
+      
+      // Update the metadata JSON with the correct image URL
+      const finalJsonPayload = {
+        ...jsonPayload,
+        image: correctImageUrl
+      };
+      
+      // Create/update metadata record with the actual assetId
+      // Keep the pending record too (don't delete it) so the on-chain URI still works
+      await supabase
+        .from('nft_metadata')
+        .upsert({
+          asset_id: resolvedAssetId,
+          metadata_json: finalJsonPayload,
+          created_at: new Date().toISOString()
+        }, {
+          onConflict: 'asset_id'
+        });
+      
+      // Also update the pending record with the final metadata (so pending URI still works)
+      await supabase
+        .from('nft_metadata')
+        .upsert({
+          asset_id: 'pending',
+          metadata_json: finalJsonPayload,
+          created_at: new Date().toISOString()
+        }, {
+          onConflict: 'asset_id'
+        });
+      
+      console.log(`✅ Updated metadata URI: ${finalMetadataUri}`);
+      
+      // Save everything to database
+      const seedStats = generateDefaultCharacterStats(characterName);
+      const { error: upsertError } = await supabase
+        .from('nfts')
+        .upsert({
+          asset_id: resolvedAssetId,
+          player_pda: playerPDA,
+          character_image_url: correctImageUrl,
+          name: characterName,
+          combat_level: seedStats.combatLevel,
+          total_level: seedStats.totalLevel,
+          attack: seedStats.skills.attack.level,
+          strength: seedStats.skills.strength.level,
+          defense: seedStats.skills.defense.level,
+          magic: seedStats.skills.magic.level,
+          projectiles: seedStats.skills.projectiles.level,
+          vitality: seedStats.skills.vitality.level,
+          crafting: seedStats.skills.crafting.level,
+          luck: seedStats.skills.luck.level,
+          mining: seedStats.skills.mining.level,
+          woodcutting: seedStats.skills.woodcutting.level,
+          fishing: seedStats.skills.fishing.level,
+          hunting: seedStats.skills.hunting.level,
+          smithing: seedStats.skills.smithing.level,
+          cooking: seedStats.skills.cooking.level,
+          alchemy: seedStats.skills.alchemy.level,
+          construction: seedStats.skills.construction.level,
+          mint_signature: mintSignature
+        }, {
+          onConflict: 'asset_id'
+        });
+      
+      if (upsertError) {
+        console.error('❌ Failed to upsert nfts row:', upsertError);
+        throw new Error(`Database save failed: ${upsertError.message}`);
+      }
+      
+      console.log(`✅ Saved image URL and metadata to database: ${correctImageUrl}`);
+      console.log(`✅ Asset ID: ${resolvedAssetId}`);
+    } catch (dbErr) {
+      console.error('⚠️ Failed to save to database:', dbErr);
+      throw new Error(`Database save failed: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
     }
     
     return {
       success: true,
-      assetId: resolvedAssetId || undefined,
+      assetId: resolvedAssetId,
       signature: mintSignature
     };
     
@@ -340,166 +538,49 @@ export async function updateCNFTNameOnly(
       .use(mplTokenMetadata())
       .use(signerIdentity(createSignerFromKeypair(umi, serverSigner)));
 
-    // Fetch asset with proof (with retry for stale proofs)
-    const fetchAssetWithRetry = async (retries = 3) => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          const asset = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+    // Fetch asset with proof IMMEDIATELY before sending (no delays, no retries)
+    const assetWithProof = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
             truncateCanopy: true
           });
-          return asset;
-        } catch (error: any) {
-          const errorMsg = error.message || String(error);
-          if (i < retries - 1 && (errorMsg.includes('Invalid root') || errorMsg.includes('leaf value'))) {
-            console.log(`🔄 Stale proof detected (attempt ${i + 1}/${retries}), retrying...`);
-            await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-            continue;
-          }
-          throw error;
-        }
-      }
-    };
-
-    let assetWithProof = await fetchAssetWithRetry();
     
     if (!assetWithProof) {
       throw new Error('Failed to fetch asset with proof');
     }
     
-    // Log current metadata for debugging
-    console.log(`📋 Current on-chain name: "${assetWithProof.metadata.name}"`);
-    console.log(`📋 Current metadata structure:`, JSON.stringify({
-      name: assetWithProof.metadata.name,
-      symbol: assetWithProof.metadata.symbol,
-      uri: assetWithProof.metadata.uri?.substring(0, 50) + '...'
-    }, null, 2));
-    
-    // Determine leaf owner
+    // Determine leaf owner and delegate
     const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
-    console.log(`🎯 Using leaf owner: ${leafOwner}`);
-    
-    // CRITICAL: Include leafDelegate - during mint we set it to serverSigner
-    // This may be required for metadata updates to work
     const leafDelegate = (assetWithProof as any)?.leafDelegate || serverSigner.publicKey;
-    console.log(`🎯 Using leaf delegate: ${leafDelegate}`);
     
-    // Build update transaction - NAME ONLY (small transaction)
-    // Use formatted name with level suffix to match URI update format
-    // CRITICAL: Ensure name fits in 32 bytes
+    // Build update transaction - NAME ONLY
     const finalName = nftDisplayName.length > 32 ? nftDisplayName.substring(0, 32) : nftDisplayName;
-    
-    // CRITICAL: Update currentMetadata directly with new name
-    // For compressed NFTs, we may need to update the metadata object itself, not just updateArgs
     const updatedMetadata = {
       ...assetWithProof.metadata,
       name: finalName
     };
-    
     const updateArgs = {
       name: some(finalName)
-      // URI stays the same - this keeps transaction small
     };
     
-    console.log(`🔧 Update args:`, JSON.stringify({ name: finalName }, null, 2));
-    console.log(`🔧 Updated metadata name: "${updatedMetadata.name}" (was "${assetWithProof.metadata.name}")`);
-    
-    let updateTx = updateMetadata(umiWithBubblegum, {
+    // Build and send transaction IMMEDIATELY (no retries, no delays, no verification)
+    const updateTx = updateMetadata(umiWithBubblegum, {
       ...assetWithProof,
       leafOwner: leafOwner,
       leafDelegate: publicKey(leafDelegate.toString()),
-      currentMetadata: updatedMetadata, // Use updated metadata with new name
+      currentMetadata: updatedMetadata,
       updateArgs,
       collectionMint: publicKey(COLLECTION_MINT)
     });
 
-    // Send with retry
-    console.log('🚀 Sending name-only update transaction...');
-    
-    const sendTransactionWithRetry = async (retries = 2): Promise<string> => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          console.log(`🔄 Name update attempt ${i + 1}/${retries}...`);
           const result = await updateTx.sendAndConfirm(umiWithBubblegum, {
             send: { skipPreflight: false }
           });
+    
           const rawSig: any = (result as any)?.signature;
-          if (typeof rawSig === 'string') return rawSig;
-          if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
-            const bs58 = require('bs58');
-            return bs58.encode(Uint8Array.from(rawSig));
-          }
-          return String(rawSig || '');
-        } catch (error: any) {
-          const errorMsg = error.message || String(error);
-          console.error(`❌ Name update attempt ${i + 1} failed:`, errorMsg);
-          
-          // Check for stale proof or expired blockhash
-          const isStaleProof = errorMsg?.includes('Invalid root recomputed from proof') || 
-                               errorMsg?.includes('leaf value does not match') ||
-                               errorMsg?.includes('current leaf value does not match');
-          const isBlockhashExpired = errorMsg?.includes('Blockhash not found') ||
-                                     errorMsg?.includes('blockhash not found');
-          
-          if ((isStaleProof || isBlockhashExpired) && i < retries - 1) {
-            if (isStaleProof) {
-              console.log('🔄 Stale proof detected, refetching asset and retrying...');
-            } else {
-              console.log('🔄 Expired blockhash detected, refetching asset and rebuilding transaction...');
-            }
-            
-            // Refetch asset with fresh proof
-            assetWithProof = await fetchAssetWithRetry();
-            
-            if (!assetWithProof) {
-              throw new Error('Failed to refetch asset with proof');
-            }
-            
-            // Rebuild transaction
-            updateTx = updateMetadata(umiWithBubblegum, {
-              ...assetWithProof,
-              leafOwner: leafOwner,
-              currentMetadata: assetWithProof.metadata,
-              updateArgs,
-              collectionMint: publicKey(COLLECTION_MINT)
-            });
-            
-            // Wait before retry
-            await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-            continue;
-          }
-          
-          // If last retry or non-recoverable error, throw
-          if (i === retries - 1) {
-            throw error;
-          }
-        }
-      }
-      throw new Error('Failed after all retries');
-    };
-
-    const signature = await sendTransactionWithRetry();
-    console.log(`✅ Name update transaction sent: ${signature}`);
-    
-    // CRITICAL: Verify the name was actually updated by refetching the asset
-    // Wait a moment for the update to propagate
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    try {
-      const verifyAsset = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
-        truncateCanopy: true
-      });
-      const updatedName = verifyAsset.metadata.name;
-      console.log(`🔍 Verification - On-chain name after update: "${updatedName}"`);
-      
-      if (updatedName === finalName) {
-        console.log(`✅ Name successfully updated on-chain!`);
-      } else {
-        console.warn(`⚠️ Name mismatch! Expected: "${finalName}", Got: "${updatedName}"`);
-        console.warn(`⚠️ The transaction succeeded but name may not have updated. This could be a Bubblegum SDK issue.`);
-      }
-    } catch (verifyErr) {
-      console.warn(`⚠️ Could not verify name update (may need more time to propagate):`, verifyErr instanceof Error ? verifyErr.message : String(verifyErr));
-    }
+    const signature = typeof rawSig === 'string' 
+      ? rawSig 
+      : (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined')
+        ? require('bs58').encode(Uint8Array.from(rawSig))
+        : String(rawSig || '');
     
     return {
       success: true,
@@ -628,20 +709,41 @@ export async function updateCharacterCNFT(
       characterStats
     };
     
-    // Upload metadata to Arweave and update URI so skill levels persist
-    const { uri: newUri } = await uploadJsonToArweave(jsonPayload);
-    console.log('✅ Metadata uploaded to Arweave:', newUri);
-    console.log(`📏 URI length: ${newUri.length} characters`);
+    // Store metadata in database instead of Arweave
+    // Use official domain with shorter path for Solana transaction size limits
+    // The Next.js app will proxy /metadata/* to the Railway backend
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
+    // Get character name from stats
+    const characterName = characterStats.name || 'character';
+    const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const newUri = `${backendBase}/metadata/${urlSafeName}`;
+    console.log('✅ Storing metadata in database:', newUri);
     
-    // Update URI only - name is already in the Arweave JSON metadata
+    try {
+      await supabase
+        .from('nft_metadata')
+        .upsert({
+          asset_id: assetId,
+          metadata_json: jsonPayload,
+          created_at: new Date().toISOString()
+        }, {
+          onConflict: 'asset_id'
+        });
+      console.log('✅ Metadata stored in database');
+    } catch (metaErr) {
+      console.error('❌ Failed to store metadata in database:', metaErr);
+      throw new Error(`Metadata storage failed: ${metaErr instanceof Error ? metaErr.message : String(metaErr)}`);
+    }
+    
+    // Update URI only - name is already in the database JSON metadata
     // Updating both URI and name exceeds transaction size limit (1648 > 1644 bytes)
     // The name is accessible via the metadata URI, so updating URI is sufficient
     let updateArgs: any = {
       uri: some(newUri)
-      // Skip name update - it's in the Arweave JSON and updating both exceeds transaction size
+      // Skip name update - it's in the database JSON and updating both exceeds transaction size
     };
     
-    console.log(`📝 Updating URI only (name "${nftDisplayName}" is in Arweave JSON): "${newUri}"`);
+    console.log(`📝 Updating URI only (name "${nftDisplayName}" is in database JSON): "${newUri}"`);
     
     // Determine leaf owner
     const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
@@ -748,6 +850,247 @@ export async function updateCharacterCNFT(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+// Repair NFT metadata URI - updates from "pending" to actual assetId
+export async function repairNFTMetadataURI(
+  assetId: string,
+  playerPDA?: string
+): Promise<{ success: boolean; signature?: string; error?: string }> {
+  try {
+    console.log(`🔧 Repairing metadata URI for assetId: ${assetId}`);
+    
+    // Setup UMI with Bubblegum
+    const rpcUrl = getRpcUrl();
+    const umiWithBubblegum = createUmi(rpcUrl)
+      .use(mplBubblegum())
+      .use(mplTokenMetadata())
+      .use(signerIdentity(createSignerFromKeypair(umi, serverSigner)));
+    
+    // Fetch asset with proof
+    const assetWithProof = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+      truncateCanopy: true
+    });
+    
+    if (!assetWithProof) {
+      throw new Error('Failed to fetch asset with proof');
+    }
+    
+    // Check current URI
+    const currentUri = assetWithProof.metadata.uri as string;
+    // Use official domain for shorter URIs (helps with Solana transaction size limits)
+    // The Next.js app will proxy /metadata/* to the Railway backend
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
+    // Get character name from database
+    let characterName = 'character';
+    try {
+      const row = await NftColumns.get(assetId);
+      if (row?.name) {
+        characterName = row.name;
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not fetch character name, using default');
+    }
+    
+    // Create URL-safe name: lowercase, spaces -> hyphens, remove special chars
+    const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const correctUri = `${backendBase}/metadata/${urlSafeName}`;
+    
+    if (currentUri === correctUri) {
+      console.log('✅ Metadata URI is already correct');
+      return { success: true };
+    }
+    
+    console.log(`📋 Current URI: ${currentUri}`);
+    console.log(`📋 Correct URI: ${correctUri}`);
+    
+    // Fetch or create metadata in database
+    let metadataJson: any;
+    const { data: existingMetadata } = await supabase
+      .from('nft_metadata')
+      .select('metadata_json')
+      .eq('asset_id', assetId)
+      .single();
+    
+    if (existingMetadata?.metadata_json) {
+      metadataJson = existingMetadata.metadata_json;
+      console.log('✅ Found existing metadata in database');
+    } else {
+      // Try to get from pending
+      const { data: pendingMetadata } = await supabase
+        .from('nft_metadata')
+        .select('metadata_json')
+        .eq('asset_id', 'pending')
+        .single();
+      
+      if (pendingMetadata?.metadata_json) {
+        metadataJson = pendingMetadata.metadata_json;
+        // Update to use correct assetId
+        await supabase
+          .from('nft_metadata')
+          .upsert({
+            asset_id: assetId,
+            metadata_json: metadataJson,
+            created_at: new Date().toISOString()
+          }, {
+            onConflict: 'asset_id'
+          });
+        console.log('✅ Migrated metadata from pending to assetId');
+      } else {
+        // Fetch from current URI and store it
+        try {
+          const response = await fetch(currentUri);
+          if (response.ok) {
+            metadataJson = await response.json();
+            await supabase
+              .from('nft_metadata')
+              .upsert({
+                asset_id: assetId,
+                metadata_json: metadataJson,
+                created_at: new Date().toISOString()
+              }, {
+                onConflict: 'asset_id'
+              });
+            console.log('✅ Fetched and stored metadata from current URI');
+          } else {
+            throw new Error('Could not fetch metadata from current URI');
+          }
+        } catch (fetchErr) {
+          // Create default metadata from database
+          const row = await NftColumns.get(assetId);
+          if (row) {
+            const stats = await NftColumns.columnsToStatsWithSkills(row);
+            metadataJson = {
+              name: stats.name,
+              symbol: 'PLAYER',
+              description: `Character with ${stats.totalLevel} total skill levels`,
+              image: row.character_image_url || '',
+              external_url: 'https://obeliskparadox.com',
+              attributes: [
+                { trait_type: 'Version', value: stats.version || '2.0.0' },
+                { trait_type: 'Level', value: stats.combatLevel.toString() },
+                { trait_type: 'Total Level', value: stats.totalLevel.toString() },
+                { trait_type: 'Attack', value: stats.skills.attack.level.toString() },
+                { trait_type: 'Strength', value: stats.skills.strength.level.toString() },
+                { trait_type: 'Defense', value: stats.skills.defense.level.toString() },
+                { trait_type: 'Magic', value: stats.skills.magic.level.toString() },
+                { trait_type: 'Projectiles', value: stats.skills.projectiles.level.toString() },
+                { trait_type: 'Vitality', value: stats.skills.vitality.level.toString() },
+                { trait_type: 'Crafting', value: stats.skills.crafting.level.toString() },
+                { trait_type: 'Luck', value: stats.skills.luck.level.toString() },
+                { trait_type: 'Mining', value: stats.skills.mining.level.toString() },
+                { trait_type: 'Woodcutting', value: stats.skills.woodcutting.level.toString() },
+                { trait_type: 'Fishing', value: stats.skills.fishing.level.toString() },
+                { trait_type: 'Hunting', value: stats.skills.hunting.level.toString() },
+                { trait_type: 'Smithing', value: stats.skills.smithing.level.toString() },
+                { trait_type: 'Cooking', value: stats.skills.cooking.level.toString() },
+                { trait_type: 'Alchemy', value: stats.skills.alchemy.level.toString() },
+                { trait_type: 'Construction', value: stats.skills.construction.level.toString() }
+              ],
+              properties: {
+                files: row.character_image_url ? [{ uri: row.character_image_url, type: 'image/png' }] : []
+              }
+            };
+            await supabase
+              .from('nft_metadata')
+              .upsert({
+                asset_id: assetId,
+                metadata_json: metadataJson,
+                created_at: new Date().toISOString()
+              }, {
+                onConflict: 'asset_id'
+              });
+            console.log('✅ Created metadata from database stats');
+          } else {
+            throw new Error('Could not find character data to create metadata');
+          }
+        }
+      }
+    }
+    
+    // Update on-chain URI only (name is already in database JSON)
+    // CRITICAL: Only update URI to avoid transaction size limit (1644 bytes max)
+    const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
+    const leafDelegate = (assetWithProof as any)?.leafDelegate || serverSigner.publicKey;
+    
+    // Retry logic with fresh proof (similar to updateCharacterCNFT)
+    const sendTransactionWithRetry = async (retries = 3): Promise<string> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          // Fetch fresh proof with truncated canopy to reduce transaction size
+          console.log(`🔄 Attempt ${i + 1}/${retries}: Fetching fresh proof with truncated canopy...`);
+          const freshAssetWithProof = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+            truncateCanopy: true
+          });
+          
+          const updateTx = updateMetadata(umiWithBubblegum, {
+            ...freshAssetWithProof,
+            leafOwner: leafOwner,
+            leafDelegate: publicKey(leafDelegate.toString()),
+            currentMetadata: freshAssetWithProof.metadata,
+            updateArgs: {
+              uri: some(correctUri)
+              // Only update URI - name is in database JSON, updating both exceeds size limit
+            },
+            collectionMint: publicKey(COLLECTION_MINT)
+          });
+          
+          // Use processed commitment for faster confirmation
+          const result = await updateTx.sendAndConfirm(umiWithBubblegum, {
+            confirm: { commitment: 'processed' },
+            send: { skipPreflight: false }
+          });
+          
+          const rawSig: any = (result as any)?.signature;
+          const signature = typeof rawSig === 'string' 
+            ? rawSig 
+            : (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined')
+              ? require('bs58').encode(Uint8Array.from(rawSig))
+              : String(rawSig || '');
+          
+          return signature;
+        } catch (error: any) {
+          const errorMsg = error.message || String(error);
+          const isStaleProof = errorMsg?.includes('Invalid root') || 
+                               errorMsg?.includes('stale') ||
+                               errorMsg?.includes('merkle tree');
+          const isTooLarge = errorMsg?.includes('too large') || 
+                            errorMsg?.includes('1644');
+          
+          if (isTooLarge) {
+            // Transaction size is a hard limit - cannot be worked around with retries
+            throw new Error(`Transaction too large (${errorMsg}). The URI may be too long for Solana's transaction size limit (1644 bytes max). The NFT metadata is stored correctly in the database and will work via the API endpoint even with the "pending" URI.`);
+          }
+          
+          if (isStaleProof && i < retries - 1) {
+            console.log(`🔄 Stale proof detected, refetching and retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          }
+          
+          if (i === retries - 1) throw error;
+        }
+      }
+      throw new Error('Update failed after retries');
+    };
+    
+    const signature = await sendTransactionWithRetry();
+    
+    console.log(`✅ Metadata URI repaired! New URI: ${correctUri}`);
+    console.log(`✅ Transaction signature: ${signature}`);
+    
+    return {
+      success: true,
+      signature
+    };
+  } catch (error: any) {
+    const errorMsg = error.message || String(error);
+    console.error(`❌ Failed to repair metadata URI:`, errorMsg);
+    return {
+      success: false,
+      error: errorMsg
     };
   }
 }

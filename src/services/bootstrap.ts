@@ -32,13 +32,23 @@ create table if not exists nfts (
   alchemy int not null default 1,
   construction int not null default 1,
 
-  last_arweave_uri text,
+  last_arweave_uri text, -- Deprecated: kept for backward compatibility
   last_update_sig text,
   state_version int not null default 0,
   updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_nfts_player_pda on nfts(player_pda);
+
+-- Create nft_metadata table for storing NFT metadata JSON (replaces Arweave)
+create table if not exists nft_metadata (
+  asset_id text primary key,
+  metadata_json jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_nft_metadata_asset_id on nft_metadata(asset_id);
 
 -- Add missing columns if they don't exist (for existing tables)
 -- Also rename old abbreviated columns to full names
@@ -146,9 +156,21 @@ export async function ensureNftTable(): Promise<void> {
         // Use a transaction for atomicity
         await client.query('begin');
         await client.query(CREATE_TABLE_SQL);
+        
+        // Also ensure nft_metadata table exists
+        await client.query(`
+          create table if not exists nft_metadata (
+            asset_id text primary key,
+            metadata_json jsonb not null,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+          );
+          create index if not exists idx_nft_metadata_asset_id on nft_metadata(asset_id);
+        `);
+        
         await client.query('commit');
         
-        console.log('✅ Ensured nfts table and index exist');
+        console.log('✅ Ensured nfts and nft_metadata tables and indexes exist');
       } catch (e) {
         try { 
           await client?.query('rollback'); 

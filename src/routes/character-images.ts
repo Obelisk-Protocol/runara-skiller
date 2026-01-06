@@ -30,6 +30,15 @@ router.post('/:assetId/generate-image', async (req: any, res: any) => {
     const { assetId } = req.params;
     const { forceRegenerate, includeBackground, updateNFT } = GenerateImageSchema.parse(req.body || {});
 
+    // Validate assetId - reject invalid values like "EMPTY"
+    if (!assetId || assetId.trim().toUpperCase() === 'EMPTY' || assetId.trim().length < 32) {
+      console.warn(`❌ Invalid assetId for image generation: ${assetId}`);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid assetId. Cannot generate image for empty or invalid character.',
+      });
+    }
+
     console.log(`🎨 Generating image for character: ${assetId}`);
 
     // Load character data (customization, equipment, name) first to get character name
