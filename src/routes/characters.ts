@@ -860,26 +860,42 @@ router.get('/metadata/:identifier', async (req: any, res: any) => {
       // Convert URL-safe name back: hyphens -> spaces, capitalize first letter of each word
       const nameFromUrl = identifier.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
       
-      // Look up in nfts table by name (case-insensitive)
-      const { data: nftRowData } = await supabase
-        .from('nfts')
-        .select('asset_id, name, character_image_url')
-        .ilike('name', nameFromUrl)
-        .limit(1)
+      // First, try to find metadata by name in the metadata JSON itself (for pending metadata)
+      // This handles the case where metadata was created before the NFT was saved to nfts table
+      const { data: pendingMetadataByName } = await supabase
+        .from('nft_metadata')
+        .select('metadata_json, asset_id')
+        .eq('asset_id', 'pending')
         .maybeSingle();
       
-      if (nftRowData?.asset_id) {
-        nftRow = nftRowData;
-        // Found by name, now get metadata by assetId
-        const { data: metadataData } = await supabase
-          .from('nft_metadata')
-          .select('metadata_json')
-          .eq('asset_id', nftRow.asset_id)
-          .single();
+      if (pendingMetadataByName && pendingMetadataByName.metadata_json && 
+          (pendingMetadataByName.metadata_json as any)?.name === nameFromUrl) {
+        // Found pending metadata with matching name
+        data = { metadata_json: pendingMetadataByName.metadata_json };
+        error = null;
+        console.log(`✅ Found pending metadata by name: ${nameFromUrl}`);
+      } else {
+        // Look up in nfts table by name (case-insensitive)
+        const { data: nftRowData } = await supabase
+          .from('nfts')
+          .select('asset_id, name, character_image_url')
+          .ilike('name', nameFromUrl)
+          .limit(1)
+          .maybeSingle();
         
-        if (metadataData) {
-          data = metadataData;
-          error = null;
+        if (nftRowData?.asset_id) {
+          nftRow = nftRowData;
+          // Found by name, now get metadata by assetId
+          const { data: metadataData } = await supabase
+            .from('nft_metadata')
+            .select('metadata_json')
+            .eq('asset_id', nftRow.asset_id)
+            .single();
+          
+          if (metadataData) {
+            data = metadataData;
+            error = null;
+          }
         }
       }
     }

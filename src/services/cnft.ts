@@ -440,6 +440,7 @@ export async function createCharacterCNFT(
       console.log(`✅ Updated metadata URI: ${finalMetadataUri}`);
       
       // Save everything to database
+      // NOTE: Skills are stored in nft_skill_experience table, not in nfts table
       const seedStats = generateDefaultCharacterStats(characterName);
       const { error: upsertError } = await supabase
         .from('nfts')
@@ -450,23 +451,10 @@ export async function createCharacterCNFT(
           name: characterName,
           combat_level: seedStats.combatLevel,
           total_level: seedStats.totalLevel,
-          attack: seedStats.skills.attack.level,
-          strength: seedStats.skills.strength.level,
-          defense: seedStats.skills.defense.level,
-          magic: seedStats.skills.magic.level,
-          projectiles: seedStats.skills.projectiles.level,
-          vitality: seedStats.skills.vitality.level,
-          crafting: seedStats.skills.crafting.level,
-          luck: seedStats.skills.luck.level,
-          mining: seedStats.skills.mining.level,
-          woodcutting: seedStats.skills.woodcutting.level,
-          fishing: seedStats.skills.fishing.level,
-          hunting: seedStats.skills.hunting.level,
-          smithing: seedStats.skills.smithing.level,
-          cooking: seedStats.skills.cooking.level,
-          alchemy: seedStats.skills.alchemy.level,
-          construction: seedStats.skills.construction.level,
-          mint_signature: mintSignature
+          version: seedStats.version || '2.0.0',
+          level: 1, // Default level
+          // Skills are NOT stored here - they're in nft_skill_experience table
+          // mint_signature is also not a column in nfts table
         }, {
           onConflict: 'asset_id'
         });
@@ -532,55 +520,132 @@ export async function updateCNFTNameOnly(
     console.log(`📝 Updating cNFT name only: "${nftDisplayName}" (${nftDisplayName.length} bytes) for assetId ${assetId} (base name: "${name}")`);
     
     // Setup UMI with Bubblegum
-    const dasRpcUrl = getDasUrl() || getRpcUrl();
-    const umiWithBubblegum = createUmi(dasRpcUrl)
+    const rpcUrl = getRpcUrl(); // Use regular RPC, not DAS URL
+    const umiWithBubblegum = createUmi(rpcUrl)
       .use(mplBubblegum())
       .use(mplTokenMetadata())
-      .use(signerIdentity(createSignerFromKeypair(umi, serverSigner)));
-
-    // Fetch asset with proof IMMEDIATELY before sending (no delays, no retries)
-    const assetWithProof = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
-            truncateCanopy: true
+      .use(signerIdentity(serverSigner));
+    
+    console.log(`🔍 Using RPC: ${rpcUrl}`);
+    
+    // Helper to fetch fresh proof with stability check
+    const fetchFreshProof = async (): Promise<any> => {
+      let attempts = 0;
+      const maxAttempts = 5;
+      
+      while (attempts < maxAttempts) {
+        attempts++;
+        console.log(`🔄 Fetching fresh proof (attempt ${attempts}/${maxAttempts})...`);
+        
+        // Fetch proof twice to check stability
+        const proof1 = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+          truncateCanopy: true
+        });
+        
+        // Small delay to see if root changes
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const proof2 = await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+          truncateCanopy: true
+        });
+        
+        // Compare roots for stability
+        const root1 = (proof1 as any)?.tree?.root?.toString();
+        const root2 = (proof2 as any)?.tree?.root?.toString();
+        
+        if (root1 === root2) {
+          console.log('✅ Proof is stable, using it');
+          return proof1;
+        }
+        
+        console.log(`⚠️ Proof roots differ (attempt ${attempts}), waiting and retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // If we get here, use the last proof anyway
+      console.log('⚠️ Using proof after max attempts (may be unstable)');
+      return await getAssetWithProof(umiWithBubblegum, publicKey(assetId), {
+        truncateCanopy: true
+      });
+    };
+    
+    // Determine leaf owner (will be set after fetching proof)
+    let leafOwner: any;
+    let leafDelegate: any;
+    
+    // Build update transaction with retry logic
+    const sendTransactionWithRetry = async (retries = 3): Promise<string> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          console.log(`🔄 Transaction attempt ${i + 1}/${retries}...`);
+          
+          // Fetch fresh proof before each attempt
+          const assetWithProof = await fetchFreshProof();
+          
+          if (!assetWithProof) {
+            throw new Error('Failed to fetch asset with proof');
+          }
+          
+          // Set leaf owner and delegate
+          leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
+          leafDelegate = (assetWithProof as any)?.leafDelegate || serverSigner.publicKey;
+          
+          // Build update transaction - NAME ONLY
+          const finalName = nftDisplayName.length > 32 ? nftDisplayName.substring(0, 32) : nftDisplayName;
+          const updatedMetadata = {
+            ...assetWithProof.metadata,
+            name: finalName
+          };
+          const updateArgs = {
+            name: some(finalName)
+          };
+          
+          // Build transaction with fresh proof
+          const updateTx = updateMetadata(umiWithBubblegum, {
+            ...assetWithProof,
+            leafOwner: leafOwner,
+            leafDelegate: publicKey(leafDelegate.toString()),
+            currentMetadata: updatedMetadata,
+            updateArgs,
+            collectionMint: publicKey(COLLECTION_MINT)
           });
-    
-    if (!assetWithProof) {
-      throw new Error('Failed to fetch asset with proof');
-    }
-    
-    // Determine leaf owner and delegate
-    const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
-    const leafDelegate = (assetWithProof as any)?.leafDelegate || serverSigner.publicKey;
-    
-    // Build update transaction - NAME ONLY
-    const finalName = nftDisplayName.length > 32 ? nftDisplayName.substring(0, 32) : nftDisplayName;
-    const updatedMetadata = {
-      ...assetWithProof.metadata,
-      name: finalName
-    };
-    const updateArgs = {
-      name: some(finalName)
-    };
-    
-    // Build and send transaction IMMEDIATELY (no retries, no delays, no verification)
-    const updateTx = updateMetadata(umiWithBubblegum, {
-      ...assetWithProof,
-      leafOwner: leafOwner,
-      leafDelegate: publicKey(leafDelegate.toString()),
-      currentMetadata: updatedMetadata,
-      updateArgs,
-      collectionMint: publicKey(COLLECTION_MINT)
-    });
-
+          
+          // Send transaction
           const result = await updateTx.sendAndConfirm(umiWithBubblegum, {
             send: { skipPreflight: false }
           });
-    
+          
           const rawSig: any = (result as any)?.signature;
-    const signature = typeof rawSig === 'string' 
-      ? rawSig 
-      : (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined')
-        ? require('bs58').encode(Uint8Array.from(rawSig))
-        : String(rawSig || '');
+          const signature = typeof rawSig === 'string' 
+            ? rawSig 
+            : (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined')
+              ? require('bs58').encode(Uint8Array.from(rawSig))
+              : String(rawSig || '');
+          
+          return signature;
+        } catch (error: any) {
+          const errorMsg = error.message || String(error);
+          console.error(`❌ Transaction attempt ${i + 1} failed:`, errorMsg);
+          
+          // Check for stale proof error
+          const isStaleProof = errorMsg?.includes('Invalid root recomputed from proof') || 
+                               errorMsg?.includes('leaf value does not match') ||
+                               errorMsg?.includes('current leaf value does not match');
+          
+          if (isStaleProof && i < retries - 1) {
+            console.log('🔄 Detected stale merkle tree proof, will fetch fresh proof on next attempt...');
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          }
+          
+          if (i === retries - 1) throw error;
+        }
+      }
+      throw new Error('Update failed after retries');
+    };
+    
+    const signature = await sendTransactionWithRetry();
     
     return {
       success: true,

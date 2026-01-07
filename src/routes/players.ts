@@ -68,10 +68,10 @@ router.post('/initialize-web2', async (req: any, res: any) => {
       });
     }
 
-    // Create a fresh PDA by adding a timestamp salt to avoid collision with old accounts
-    const saltedUserId = `${userId}_${Date.now()}`;
-    const web2IdHash = createWeb2IdHash(saltedUserId);
-    console.log('Creating FRESH player PDA with salted ID:', saltedUserId.slice(-20));
+    // Use consistent PDA derivation (non-salted, matches frontend logic)
+    // This ensures PDAs are deterministic and recoverable
+    const web2IdHash = createWeb2IdHash(userId);
+    console.log('Creating player PDA for userId:', userId.substring(0, 8) + '...');
 
     const [playerPda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), Buffer.from(web2IdHash)],
@@ -149,16 +149,16 @@ router.post('/initialize-web2', async (req: any, res: any) => {
       try {
         const { userId, profile } = await authenticateUser(req);
         
-        // For recovery, use the original user ID to find the existing PDA
-        const originalWeb2IdHash = createWeb2IdHash(userId);
+        // For recovery, use the user ID to find the existing PDA (same derivation as creation)
+        const web2IdHash = createWeb2IdHash(userId);
         const [playerPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from('player'), Buffer.from(originalWeb2IdHash)],
+          [Buffer.from('player'), Buffer.from(web2IdHash)],
           PROGRAM_ID
         );
         
         const COBX_MINT = getCobxMint();
         const [playerCobxAccount] = PublicKey.findProgramAddressSync(
-          [Buffer.from('player_cobx'), Buffer.from(originalWeb2IdHash)],
+          [Buffer.from('player_cobx'), Buffer.from(web2IdHash)],
           PROGRAM_ID
         );
         
