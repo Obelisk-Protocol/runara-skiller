@@ -3,7 +3,8 @@
  * Loads character customization and equipment data from database
  */
 
-import { supabase } from '../config/database';
+// Supabase removed - using PostgreSQL directly
+import { pgQuerySingle } from '../utils/pg-helper';
 import { CharacterCustomization, getDefaultCustomization, validateCustomization } from '../types/character-customization';
 import { PlayerItemService } from './player-items';
 import { NftColumns } from './database';
@@ -46,11 +47,12 @@ async function loadCharacterCustomization(
     }
 
     // Get profile by playerPDA
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('character_customization')
-      .eq('player_pda', playerPDA)
-      .single();
+      const profileResult = await pgQuerySingle<any>(
+        'SELECT character_customization FROM profiles WHERE player_pda = $1',
+        [playerPDA]
+      );
+      const profile = profileResult.data;
+      const error = profileResult.error;
 
     if (error || !profile) {
       console.warn(`[CharacterDataLoader] Profile not found for playerPDA ${playerPDA}, using default customization`);
@@ -97,11 +99,12 @@ async function loadEquippedGear(
     }
 
     // Get profile to find player_id
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('player_pda', playerPDA)
-      .single();
+    const profileResult = await pgQuerySingle<any>(
+      'SELECT character_customization FROM profiles WHERE player_pda = $1',
+      [playerPDA]
+    );
+    const profile = profileResult.data;
+    const profileError = profileResult.error;
 
     if (profileError || !profile) {
       console.warn(`[CharacterDataLoader] Profile not found for playerPDA ${playerPDA}, no equipment loaded`);

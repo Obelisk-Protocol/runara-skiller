@@ -5,7 +5,9 @@ import { z } from 'zod';
 import { createCharacterCNFT, updateCharacterCNFT, updateCNFTNameOnly, fetchCharacterFromCNFT, findLatestAssetIdForOwner, getAssetMetadataDebug, generateDefaultCharacterStats, repairNFTMetadataURI } from '../services/cnft';
 import { CharacterService } from '../services/character';
 import { MetadataStore, NftColumns } from '../services/database';
-import { supabase } from '../config/database';
+// Supabase removed - use PostgreSQL via pg-helper
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper';
+import { verifyAuthToken } from '../utils/auth-helper';
 import { generateCharacterImage } from '../services/character-image-generator';
 import { saveCharacterImage } from '../services/image-storage';
 import { loadCharacterImageData } from '../services/character-data-loader';
@@ -20,25 +22,50 @@ router.post('/clear-slot-after-withdraw', async (req: any, res: any) => {
       assetId: z.string(),
     })
     const { playerPDA, assetId } = schema.parse(req.body || {})
-    const { data: profile, error: fetchError } = await supabase
-      .from('profiles')
-      .select('id, character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
-      .eq('player_pda', playerPDA)
-      .single()
-    if (fetchError || !profile) return res.status(404).json({ success: false, error: 'Profile not found' })
-
-    const update: any = {}
-    for (let i = 1 as 1|2|3|4|5; i <= 5; i++) {
-      const key = `character_cnft_${i}` as const
-      if ((profile as any)[key] === assetId) update[key] = null
+    
+    // Use PostgreSQL directly
+    const { Client } = await import('pg');
+    const client = new Client({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    });
+    
+    try {
+      await client.connect();
+      
+      const profileResult = await client.query(
+        'SELECT id, character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5 FROM profiles WHERE player_pda = $1',
+        [playerPDA]
+      );
+      
+      if (profileResult.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Profile not found' });
+      }
+      
+      const profile = profileResult.rows[0];
+      const update: any = {};
+      for (let i = 1 as 1|2|3|4|5; i <= 5; i++) {
+        const key = `character_cnft_${i}` as const;
+        if ((profile as any)[key] === assetId) update[key] = null;
+      }
+      
+      if (Object.keys(update).length === 0) {
+        return res.json({ success: true, updated: false });
+      }
+      
+      const updateFields = Object.keys(update).map((key, idx) => `${key} = $${idx + 1}`).join(', ');
+      const updateValues = Object.values(update);
+      updateValues.push(playerPDA);
+      
+      await client.query(
+        `UPDATE profiles SET ${updateFields}, updated_at = NOW() WHERE player_pda = $${updateValues.length}`,
+        updateValues
+      );
+      
+      return res.json({ success: true, updated: true });
+    } finally {
+      await client.end();
     }
-    if (Object.keys(update).length === 0) return res.json({ success: true, updated: false })
-    const { error: updErr } = await supabase
-      .from('profiles')
-      .update(update)
-      .eq('player_pda', playerPDA)
-    if (updErr) return res.status(500).json({ success: false, error: updErr.message })
-    return res.json({ success: true, updated: true })
   } catch (e: any) {
     return res.status(400).json({ success: false, error: e?.message || 'Invalid request' })
   }
@@ -220,23 +247,25 @@ async function authenticateUser(req: any): Promise<{ userId: string; profile: an
   }
 
   const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const authResult = await verifyAuthToken(token);
   
-  if (error || !user) {
+  if (authResult.error || !authResult.data?.user) {
     throw new Error('Unauthorized - invalid token');
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
+  const profileResult = await pgQuerySingle<any>(
+    'SELECT * FROM profiles WHERE id = $1',
+    [authResult.data.user.id]
+  );
+  
+  const profile = profileResult.data;
+  const profileError = profileResult.error;
 
   if (profileError || !profile) {
     throw new Error('Profile not found');
   }
 
-  return { userId: user.id, profile };
+  return { userId: authResult.data?.user?.id || '', profile };
 }
 
 // --- Security helpers ---
@@ -321,11 +350,12 @@ router.post('/create', async (req: any, res: any) => {
         }
         try {
           // Find the player by PDA and update with the new character asset ID
-          const { data: profile, error: fetchError } = await supabase
-            .from('profiles')
-            .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
-            .eq('player_pda', playerPDA)
-            .single();
+          const profileResult = await pgQuerySingle<any>(
+            'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot FROM profiles WHERE player_pda = $1',
+            [playerPDA]
+          );
+          const profile = profileResult.data;
+          const fetchError = profileResult.error;
           
           if (profile && !fetchError) {
             // Helper: treat null/''/'EMPTY'/'NULL' as empty
@@ -356,10 +386,13 @@ router.post('/create', async (req: any, res: any) => {
             }
             
             if (Object.keys(updateData).length > 0) {
-              const { error: updateError } = await supabase
-                .from('profiles')
-                .update(updateData)
-                .eq('player_pda', playerPDA);
+              const updateKeys = Object.keys(updateData);
+              const updateValues = Object.values(updateData);
+              const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+              const { error: updateError } = await pgQuery(
+                `UPDATE profiles SET ${setClause} WHERE player_pda = $${updateKeys.length + 1}`,
+                [...updateValues, playerPDA]
+              );
                 
               if (updateError) {
                 console.error('⚠️ Failed to update Supabase with asset ID:', updateError);
@@ -404,11 +437,12 @@ router.post('/inventory-union', async (req: any, res: any) => {
     const { playerPDA, serverEscrow } = InventoryUnionSchema.parse(req.body || {})
 
     // Collect asset IDs from DB slots first (authoritative for gameplay)
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
-      .eq('player_pda', playerPDA)
-      .single()
+    const profileResult = await pgQuerySingle<any>(
+      'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5 FROM profiles WHERE player_pda = $1',
+      [playerPDA]
+    );
+    const profile = profileResult.data;
+    const profileError = profileResult.error;
 
     const dbAssetIds = (profile ? [
       profile.character_cnft_1,
@@ -486,11 +520,12 @@ router.post('/assign-slot-after-deposit', async (req: any, res: any) => {
   try {
     const { playerPDA, assetId, slot } = AssignSlotAfterDepositSchema.parse(req.body || {})
 
-    const { data: profile, error: fetchError } = await supabase
-      .from('profiles')
-      .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
-      .eq('player_pda', playerPDA)
-      .single()
+    const profileResult = await pgQuerySingle<any>(
+      'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot FROM profiles WHERE player_pda = $1',
+      [playerPDA]
+    );
+    const profile = profileResult.data;
+    const fetchError = profileResult.error;
     if (fetchError || !profile) return res.status(404).json({ success: false, error: 'Profile not found' })
 
     const update: any = {}
@@ -515,10 +550,13 @@ router.post('/assign-slot-after-deposit', async (req: any, res: any) => {
 
     if (!profile.active_character_slot) update.active_character_slot = chosenSlot
 
-    const { error: updErr } = await supabase
-      .from('profiles')
-      .update(update)
-      .eq('player_pda', playerPDA)
+    const updateKeys = Object.keys(update);
+    const updateValues = Object.values(update);
+    const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+    const { error: updErr } = await pgQuery(
+      `UPDATE profiles SET ${setClause} WHERE player_pda = $${updateKeys.length + 1}`,
+      [...updateValues, playerPDA]
+    )
     if (updErr) return res.status(500).json({ success: false, error: updErr.message })
 
     return res.json({ success: true, updated: true, slot: chosenSlot })
@@ -726,11 +764,12 @@ router.post('/:assetId/update-metadata-image', async (req: any, res: any) => {
     console.log(`🔄 Force updating metadata image for: ${assetId}`);
     
     // Get image URL from nfts table
-    const { data: nftRow, error: nftError } = await supabase
-      .from('nfts')
-      .select('character_image_url, name')
-      .eq('asset_id', assetId)
-      .single();
+    const nftResult = await pgQuerySingle<any>(
+      'SELECT character_image_url, name FROM nfts WHERE asset_id = $1',
+      [assetId]
+    );
+    const nftRow = nftResult.data;
+    const nftError = nftResult.error;
     
     if (nftError || !nftRow) {
       return res.status(404).json({
@@ -747,11 +786,11 @@ router.post('/:assetId/update-metadata-image', async (req: any, res: any) => {
     }
     
     // Get current metadata
-    const { data: metadataRow } = await supabase
-      .from('nft_metadata')
-      .select('metadata_json')
-      .eq('asset_id', assetId)
-      .single();
+    const metadataResult = await pgQuerySingle<any>(
+      'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+      [assetId]
+    );
+    const metadataRow = metadataResult.data;
     
     if (!metadataRow) {
       return res.status(404).json({
@@ -771,10 +810,10 @@ router.post('/:assetId/update-metadata-image', async (req: any, res: any) => {
     };
     
     // Save updated metadata
-    const { error: updateError } = await supabase
-      .from('nft_metadata')
-      .update({ metadata_json: updatedMetadata })
-      .eq('asset_id', assetId);
+    const { error: updateError } = await pgQuery(
+      'UPDATE nft_metadata SET metadata_json = $1 WHERE asset_id = $2',
+      [updatedMetadata, assetId]
+    );
     
     if (updateError) {
       throw updateError;
@@ -833,85 +872,109 @@ router.get('/metadata/:identifier', async (req: any, res: any) => {
     const { identifier } = req.params;
     
     // First try to find by assetId (for legacy URIs)
-    let { data, error } = await supabase
-      .from('nft_metadata')
-      .select('metadata_json')
-      .eq('asset_id', identifier)
-      .single();
+    const { Client } = await import('pg');
+    const client = new Client({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    });
     
-    // Track nftRow for image URL lookup (also fetch image URL when looking up by assetId)
+    let metadataData: any = null;
     let nftRow: any = null;
     
-    // If found by assetId, also fetch the nft row for image URL
-    if (!error && data) {
-      const { data: nftData } = await supabase
-        .from('nfts')
-        .select('asset_id, name, character_image_url')
-        .eq('asset_id', identifier)
-        .maybeSingle();
+    try {
+      await client.connect();
       
-      if (nftData) {
-        nftRow = nftData;
+      // Fetch metadata
+      const metadataResult = await client.query(
+        'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+        [identifier]
+      );
+      
+      if (metadataResult.rows.length > 0) {
+        metadataData = metadataResult.rows[0];
+        
+        // Also fetch nft row for image URL
+        const nftResult = await client.query(
+          'SELECT asset_id, name, character_image_url FROM nfts WHERE asset_id = $1',
+          [identifier]
+        );
+        
+        if (nftResult.rows.length > 0) {
+          nftRow = nftResult.rows[0];
+        }
       }
+    } finally {
+      await client.end();
     }
+    
+    let data: any = metadataData;
+    let error: any = metadataData ? null : { code: 'PGRST116' };
     
     // If not found, try to find by character name (URL-safe version)
     if (error || !data) {
       // Convert URL-safe name back: hyphens -> spaces, capitalize first letter of each word
       const nameFromUrl = identifier.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
       
-      // First, try to find metadata by name in the metadata JSON itself (for pending metadata)
-      // This handles the case where metadata was created before the NFT was saved to nfts table
-      const { data: pendingMetadataByName } = await supabase
-        .from('nft_metadata')
-        .select('metadata_json, asset_id')
-        .eq('asset_id', 'pending')
-        .maybeSingle();
-      
-      if (pendingMetadataByName && pendingMetadataByName.metadata_json && 
-          (pendingMetadataByName.metadata_json as any)?.name === nameFromUrl) {
-        // Found pending metadata with matching name
-        data = { metadata_json: pendingMetadataByName.metadata_json };
-        error = null;
-        console.log(`✅ Found pending metadata by name: ${nameFromUrl}`);
-      } else {
-        // Look up in nfts table by name (case-insensitive)
-        const { data: nftRowData } = await supabase
-          .from('nfts')
-          .select('asset_id, name, character_image_url')
-          .ilike('name', nameFromUrl)
-          .limit(1)
-          .maybeSingle();
+      // Reuse client connection for additional queries
+      try {
+        await client.connect();
         
-        if (nftRowData?.asset_id) {
-          nftRow = nftRowData;
-          // Found by name, now get metadata by assetId
-          const { data: metadataData } = await supabase
-            .from('nft_metadata')
-            .select('metadata_json')
-            .eq('asset_id', nftRow.asset_id)
-            .single();
+        // First, try to find metadata by name in the metadata JSON itself (for pending metadata)
+        const pendingResult = await client.query(
+          'SELECT metadata_json, asset_id FROM nft_metadata WHERE asset_id = $1',
+          ['pending']
+        );
+        
+        if (pendingResult.rows.length > 0) {
+          const pendingMetadataByName = pendingResult.rows[0];
+          if (pendingMetadataByName.metadata_json && 
+              (pendingMetadataByName.metadata_json as any)?.name === nameFromUrl) {
+            data = { metadata_json: pendingMetadataByName.metadata_json };
+            error = null;
+            console.log(`✅ Found pending metadata by name: ${nameFromUrl}`);
+          } else {
+            // Look up in nfts table by name (case-insensitive)
+            const nftResult = await client.query(
+              'SELECT asset_id, name, character_image_url FROM nfts WHERE LOWER(name) = LOWER($1) LIMIT 1',
+              [nameFromUrl]
+            );
+            
+            if (nftResult.rows.length > 0) {
+              nftRow = nftResult.rows[0];
+              // Found by name, now get metadata by assetId
+              const metadataResult = await client.query(
+                'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+                [nftRow.asset_id]
+              );
+              
+              if (metadataResult.rows.length > 0) {
+                data = metadataResult.rows[0];
+                error = null;
+              }
+            }
+          }
+        }
+        
+        // If still not found and identifier is "pending", try to find any pending metadata
+        if ((error || !data) && identifier === 'pending') {
+          const pendingResult = await client.query(
+            'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+            ['pending']
+          );
           
-          if (metadataData) {
-            data = metadataData;
+          if (pendingResult.rows.length > 0) {
+            data = pendingResult.rows[0];
             error = null;
           }
         }
+      } catch (queryError) {
+        console.error('Error in fallback queries:', queryError);
       }
     }
     
-    // If still not found and identifier is "pending", try to find any pending metadata
-    if ((error || !data) && identifier === 'pending') {
-      const { data: pendingData } = await supabase
-        .from('nft_metadata')
-        .select('metadata_json')
-        .eq('asset_id', 'pending')
-        .single();
-      
-      if (pendingData) {
-        data = pendingData;
-        error = null;
-      }
+    // Close connection after all queries
+    if (!client.ended) {
+      await client.end();
     }
     
     if (error || !data) {
@@ -935,13 +998,25 @@ router.get('/metadata/:identifier', async (req: any, res: any) => {
     if (nftRow?.character_image_url) {
       imageUrl = nftRow.character_image_url;
     } else {
-      const { data: nftData } = await supabase
-        .from('nfts')
-        .select('character_image_url')
-        .eq('asset_id', assetIdForImage)
-        .maybeSingle();
-      
-      imageUrl = nftData?.character_image_url || null;
+      // Query PostgreSQL directly
+      const imageClient = new (await import('pg')).Client({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
+      try {
+        await imageClient.connect();
+        const nftResult = await imageClient.query(
+          'SELECT character_image_url FROM nfts WHERE asset_id = $1',
+          [assetIdForImage]
+        );
+        if (nftResult.rows.length > 0) {
+          imageUrl = nftResult.rows[0].character_image_url || null;
+        }
+      } catch (queryError) {
+        console.warn('Failed to fetch image URL:', queryError);
+      } finally {
+        await imageClient.end();
+      }
     }
     
     // Ensure image field exists in metadata (handle empty strings too)
@@ -973,10 +1048,21 @@ router.get('/metadata/:identifier', async (req: any, res: any) => {
         console.log(`✅ Generated and saved image: ${generatedImageUrl}`);
         
         // Update database with image URL
-        await supabase
-          .from('nfts')
-          .update({ character_image_url: generatedImageUrl })
-          .eq('asset_id', assetIdForImage);
+        const updateClient = new (await import('pg')).Client({
+          connectionString: process.env.DATABASE_URL,
+          ssl: { rejectUnauthorized: false }
+        });
+        try {
+          await updateClient.connect();
+          await updateClient.query(
+            'UPDATE nfts SET character_image_url = $1, updated_at = NOW() WHERE asset_id = $2',
+            [generatedImageUrl, assetIdForImage]
+          );
+        } catch (updateError) {
+          console.warn('Failed to update image URL:', updateError);
+        } finally {
+          await updateClient.end();
+        }
         
         // Update metadata JSON with the new image URL
         metadataJson = {
@@ -989,10 +1075,10 @@ router.get('/metadata/:identifier', async (req: any, res: any) => {
         };
         
         // Also update the metadata in the database
-        await supabase
-          .from('nft_metadata')
-          .update({ metadata_json: metadataJson })
-          .eq('asset_id', assetIdForImage);
+        await pgQuery(
+          'UPDATE nft_metadata SET metadata_json = $1 WHERE asset_id = $2',
+          [metadataJson, assetIdForImage]
+        );
         
         console.log(`✅ Auto-generated image and updated metadata`);
       } catch (genError) {
@@ -1046,13 +1132,14 @@ router.get('/:assetId', async (req: any, res: any) => {
       // Add character image URL from database if available
       // Check nfts table for character_image_url column
       try {
-        const { data: nftRow, error: nftError } = await supabase
-          .from('nfts')
-          .select('character_image_url, name')
-          .eq('asset_id', assetId)
-          .single();
+        const nftResult = await pgQuerySingle<any>(
+          'SELECT character_image_url, name FROM nfts WHERE asset_id = $1',
+          [assetId]
+        );
+        const nftRow = nftResult.data;
+        const nftError = nftResult.error;
         
-        if (nftError && nftError.code !== 'PGRST116') {
+        if (nftError && (nftError as any).code !== 'PGRST116') {
           console.warn(`⚠️ Failed to fetch NFT row for image/name:`, nftError);
         }
         
@@ -1158,33 +1245,48 @@ router.post('/fetch-player-cnfts-simple', async (req: any, res: any) => {
     
     console.log('🔍 Fetching player cNFTs for playerId:', playerId);
     
-    // Get the user profile from Supabase to find character asset IDs
+    // Get the user profile from PostgreSQL to find character asset IDs
     // Try by player_pda first; if not found, try by user id
-    let { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, player_pda')
-      .eq('player_pda', playerId)
-      .single();
-
-    if (profileError || !profile) {
-      const alt = await supabase
-        .from('profiles')
-        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, player_pda')
-        .eq('id', playerId)
-        .single();
-      profile = alt.data as any;
-      profileError = alt.error as any;
+    const { Client } = await import('pg');
+    const client = new Client({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    });
+    
+    let profile: any = null;
+    
+    try {
+      await client.connect();
+      
+      // Try by player_pda first
+      let result = await client.query(
+        'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, player_pda FROM profiles WHERE player_pda = $1',
+        [playerId]
+      );
+      
+      if (result.rows.length === 0) {
+        // Try by id (UUID)
+        result = await client.query(
+          'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, player_pda FROM profiles WHERE id = $1',
+          [playerId]
+        );
+      }
+      
+      if (result.rows.length > 0) {
+        profile = result.rows[0];
+      }
+    } finally {
+      await client.end();
     }
 
-    console.log('📊 Supabase query result:');
+    console.log('📊 Profile query result:');
     console.log('- Profile data:', profile);
-    console.log('- Profile error:', profileError);
 
-    if (profileError || !profile) {
-      console.error('❌ Failed to fetch profile:', profileError);
+    if (!profile) {
+      console.error('❌ Failed to fetch profile');
       return res.status(404).json({
         success: false,
-        error: `Player profile not found: ${profileError?.message || 'Unknown error'}`
+        error: 'Player profile not found'
       });
     }
 

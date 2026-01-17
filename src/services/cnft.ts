@@ -27,7 +27,8 @@ import { NftColumns } from './database';
 import { generateCharacterImage } from './character-image-generator';
 import { getDefaultCustomization } from '../types/character-customization';
 import { saveCharacterImage } from './image-storage';
-import { supabase } from '../config/database';
+// Supabase removed - using PostgreSQL directly
+import { pgQuery, pgQuerySingle } from '../utils/pg-helper';
 
 // Resolve default character image URL
 function resolveDefaultCharacterImageUrl(seedName?: string): string {
@@ -260,16 +261,19 @@ export async function createCharacterCNFT(
     
     // Store metadata in database for API endpoint to serve
     try {
-      await supabase
-        .from('nft_metadata')
-        .upsert({
-          asset_id: 'pending', // Will be updated after mint
-          metadata_json: jsonPayload,
-          created_at: new Date().toISOString()
-        }, {
-          onConflict: 'asset_id'
-        });
-      console.log('✅ Stored metadata in database');
+      const { error } = await pgQuery(
+        `INSERT INTO nft_metadata (asset_id, metadata_json, created_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (asset_id) DO UPDATE SET
+           metadata_json = EXCLUDED.metadata_json,
+           created_at = EXCLUDED.created_at`,
+        ['pending', jsonPayload, new Date().toISOString()]
+      );
+      if (error) {
+        console.warn('⚠️ Failed to store metadata in database (non-fatal):', error);
+      } else {
+        console.log('✅ Stored metadata in database');
+      }
     } catch (metaErr) {
       console.warn('⚠️ Failed to store metadata in database (non-fatal):', metaErr);
     }
@@ -355,7 +359,7 @@ export async function createCharacterCNFT(
     }
     
     // Extract asset ID directly from logs
-    const logs: string[] = tx?.meta?.logMessages || [];
+    const logs: string[] = (tx as any)?.meta?.logMessages || [];
     let resolvedAssetId: string | null = null;
     
     // Extract asset ID from "Leaf asset ID: <address>" log
@@ -416,52 +420,58 @@ export async function createCharacterCNFT(
       
       // Create/update metadata record with the actual assetId
       // Keep the pending record too (don't delete it) so the on-chain URI still works
-      await supabase
-        .from('nft_metadata')
-        .upsert({
-          asset_id: resolvedAssetId,
-          metadata_json: finalJsonPayload,
-          created_at: new Date().toISOString()
-        }, {
-          onConflict: 'asset_id'
-        });
+      await pgQuery(
+        `INSERT INTO nft_metadata (asset_id, metadata_json, created_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (asset_id) DO UPDATE SET
+           metadata_json = EXCLUDED.metadata_json,
+           created_at = EXCLUDED.created_at`,
+        [resolvedAssetId, finalJsonPayload, new Date().toISOString()]
+      );
       
       // Also update the pending record with the final metadata (so pending URI still works)
-      await supabase
-        .from('nft_metadata')
-        .upsert({
-          asset_id: 'pending',
-          metadata_json: finalJsonPayload,
-          created_at: new Date().toISOString()
-        }, {
-          onConflict: 'asset_id'
-        });
+      await pgQuery(
+        `INSERT INTO nft_metadata (asset_id, metadata_json, created_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (asset_id) DO UPDATE SET
+           metadata_json = EXCLUDED.metadata_json,
+           created_at = EXCLUDED.created_at`,
+        ['pending', finalJsonPayload, new Date().toISOString()]
+      );
       
       console.log(`✅ Updated metadata URI: ${finalMetadataUri}`);
       
       // Save everything to database
       // NOTE: Skills are stored in nft_skill_experience table, not in nfts table
       const seedStats = generateDefaultCharacterStats(characterName);
-      const { error: upsertError } = await supabase
-        .from('nfts')
-        .upsert({
-          asset_id: resolvedAssetId,
-          player_pda: playerPDA,
-          character_image_url: correctImageUrl,
-          name: characterName,
-          combat_level: seedStats.combatLevel,
-          total_level: seedStats.totalLevel,
-          version: seedStats.version || '2.0.0',
-          level: 1, // Default level
-          // Skills are NOT stored here - they're in nft_skill_experience table
-          // mint_signature is also not a column in nfts table
-        }, {
-          onConflict: 'asset_id'
-        });
+      const { error: upsertError } = await pgQuery(
+        `INSERT INTO nfts (
+          asset_id, player_pda, character_image_url, name, combat_level, 
+          total_level, version, level
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (asset_id) DO UPDATE SET
+          player_pda = EXCLUDED.player_pda,
+          character_image_url = EXCLUDED.character_image_url,
+          name = EXCLUDED.name,
+          combat_level = EXCLUDED.combat_level,
+          total_level = EXCLUDED.total_level,
+          version = EXCLUDED.version,
+          level = EXCLUDED.level`,
+        [
+          resolvedAssetId,
+          playerPDA,
+          correctImageUrl,
+          characterName,
+          seedStats.combatLevel,
+          seedStats.totalLevel,
+          seedStats.version || '2.0.0',
+          1 // Default level
+        ]
+      );
       
       if (upsertError) {
         console.error('❌ Failed to upsert nfts row:', upsertError);
-        throw new Error(`Database save failed: ${upsertError.message}`);
+        throw new Error(`Database save failed: ${upsertError instanceof Error ? upsertError.message : String(upsertError)}`);
       }
       
       console.log(`✅ Saved image URL and metadata to database: ${correctImageUrl}`);
@@ -785,16 +795,19 @@ export async function updateCharacterCNFT(
     console.log('✅ Storing metadata in database:', newUri);
     
     try {
-      await supabase
-        .from('nft_metadata')
-        .upsert({
-          asset_id: assetId,
-          metadata_json: jsonPayload,
-          created_at: new Date().toISOString()
-        }, {
-          onConflict: 'asset_id'
-        });
-      console.log('✅ Metadata stored in database');
+      const { error } = await pgQuery(
+        `INSERT INTO nft_metadata (asset_id, metadata_json, created_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (asset_id) DO UPDATE SET
+           metadata_json = EXCLUDED.metadata_json,
+           created_at = EXCLUDED.created_at`,
+        [assetId, jsonPayload, new Date().toISOString()]
+      );
+      if (error) {
+        console.warn('⚠️ Failed to store metadata in database:', error);
+      } else {
+        console.log('✅ Metadata stored in database');
+      }
     } catch (metaErr) {
       console.error('❌ Failed to store metadata in database:', metaErr);
       throw new Error(`Metadata storage failed: ${metaErr instanceof Error ? metaErr.message : String(metaErr)}`);
@@ -973,35 +986,32 @@ export async function repairNFTMetadataURI(
     
     // Fetch or create metadata in database
     let metadataJson: any;
-    const { data: existingMetadata } = await supabase
-      .from('nft_metadata')
-      .select('metadata_json')
-      .eq('asset_id', assetId)
-      .single();
+    const { data: existingMetadata, error: existingError } = await pgQuerySingle(
+      'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+      [assetId]
+    );
     
-    if (existingMetadata?.metadata_json) {
+    if (existingMetadata?.metadata_json && !existingError) {
       metadataJson = existingMetadata.metadata_json;
       console.log('✅ Found existing metadata in database');
     } else {
       // Try to get from pending
-      const { data: pendingMetadata } = await supabase
-        .from('nft_metadata')
-        .select('metadata_json')
-        .eq('asset_id', 'pending')
-        .single();
+      const { data: pendingMetadata, error: pendingError } = await pgQuerySingle(
+        'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+        ['pending']
+      );
       
-      if (pendingMetadata?.metadata_json) {
+      if (pendingMetadata?.metadata_json && !pendingError) {
         metadataJson = pendingMetadata.metadata_json;
         // Update to use correct assetId
-        await supabase
-          .from('nft_metadata')
-          .upsert({
-            asset_id: assetId,
-            metadata_json: metadataJson,
-            created_at: new Date().toISOString()
-          }, {
-            onConflict: 'asset_id'
-          });
+        await pgQuery(
+          `INSERT INTO nft_metadata (asset_id, metadata_json, created_at)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (asset_id) DO UPDATE SET
+             metadata_json = EXCLUDED.metadata_json,
+             created_at = EXCLUDED.created_at`,
+          [assetId, metadataJson, new Date().toISOString()]
+        );
         console.log('✅ Migrated metadata from pending to assetId');
       } else {
         // Fetch from current URI and store it
@@ -1009,15 +1019,14 @@ export async function repairNFTMetadataURI(
           const response = await fetch(currentUri);
           if (response.ok) {
             metadataJson = await response.json();
-            await supabase
-              .from('nft_metadata')
-              .upsert({
-                asset_id: assetId,
-                metadata_json: metadataJson,
-                created_at: new Date().toISOString()
-              }, {
-                onConflict: 'asset_id'
-              });
+            await pgQuery(
+              `INSERT INTO nft_metadata (asset_id, metadata_json, created_at)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (asset_id) DO UPDATE SET
+                 metadata_json = EXCLUDED.metadata_json,
+                 created_at = EXCLUDED.created_at`,
+              [assetId, metadataJson, new Date().toISOString()]
+            );
             console.log('✅ Fetched and stored metadata from current URI');
           } else {
             throw new Error('Could not fetch metadata from current URI');
@@ -1058,15 +1067,14 @@ export async function repairNFTMetadataURI(
                 files: row.character_image_url ? [{ uri: row.character_image_url, type: 'image/png' }] : []
               }
             };
-            await supabase
-              .from('nft_metadata')
-              .upsert({
-                asset_id: assetId,
-                metadata_json: metadataJson,
-                created_at: new Date().toISOString()
-              }, {
-                onConflict: 'asset_id'
-              });
+            await pgQuery(
+              `INSERT INTO nft_metadata (asset_id, metadata_json, created_at)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (asset_id) DO UPDATE SET
+                 metadata_json = EXCLUDED.metadata_json,
+                 created_at = EXCLUDED.created_at`,
+              [assetId, metadataJson, new Date().toISOString()]
+            );
             console.log('✅ Created metadata from database stats');
           } else {
             throw new Error('Could not find character data to create metadata');

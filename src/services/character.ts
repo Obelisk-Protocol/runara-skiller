@@ -285,12 +285,12 @@ export class CharacterService {
       console.log(`🔍 Fetching characters for player: ${playerId}`);
       
       // Profiles hold asset IDs; we no longer read legacy characters table here.
-      const { supabase } = await import('../config/database')
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
-        .eq('id', playerId)
-        .single()
+      const { pgQuerySingle } = await import('../utils/pg-helper')
+      const profileResult = await pgQuerySingle<any>(
+        'SELECT * FROM profiles WHERE player_pda = $1 OR id = $1',
+        [playerId]
+      )
+      const profile = profileResult.data
       const assetIds: string[] = [
         profile?.character_cnft_1,
         profile?.character_cnft_2,

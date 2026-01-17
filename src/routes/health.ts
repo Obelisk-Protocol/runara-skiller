@@ -37,16 +37,20 @@ router.get('/deep', async (req: any, res: any) => {
     const checks = {
       database: await testDatabaseConnection(),
       environment: {
-        supabase_url: !!process.env.SUPABASE_URL,
-        supabase_key: !!process.env.SUPABASE_SERVICE_ROLE,
+        database_url: !!process.env.DATABASE_URL,
+        cloudflare_account_id: !!process.env.CLOUDFLARE_ACCOUNT_ID,
+        cloudflare_r2_access_key: !!process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+        cloudflare_r2_secret: !!process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+        chunk_server_url: !!process.env.CHUNK_SERVER_URL,
         solana_rpc: !!process.env.SOLANA_RPC_URL,
-        solana_key: !!process.env.PRIVATE_SERVER_WALLET,
-        backend_url: !!process.env.BACKEND_URL
+        solana_key: !!process.env.PRIVATE_SERVER_WALLET
       }
     };
     
-    const envValues: boolean[] = Object.values(checks.environment as Record<string, boolean>) as boolean[];
-    const allHealthy = !!checks.database && envValues.every(v => !!v);
+    // Database is required, others are recommended
+    const requiredChecks = [checks.database, checks.environment.database_url];
+    const optionalChecks = Object.values(checks.environment).filter((v, i) => i > 0); // Skip database_url (already checked)
+    const allHealthy = requiredChecks.every(v => !!v) && optionalChecks.some(v => !!v);
     
     res.status(allHealthy ? 200 : 503).json({
       status: allHealthy ? 'healthy' : 'degraded',

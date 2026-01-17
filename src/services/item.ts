@@ -1,10 +1,13 @@
-import { supabase } from '../config/database'
+// Supabase removed - using PostgreSQL directly
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper'
 
 export interface ItemDefinitionFilters {
   filters?: {
     item_type?: string
     rarity?: string
     is_active?: boolean
+    is_placeable?: boolean
+    placeable_category?: string
   }
   search?: string
 }
@@ -32,6 +35,10 @@ export interface ItemDefinition {
   created_at: string
   updated_at: string
   mint_cost_cobx: number
+  // Placeable item fields (added in migration 016)
+  is_placeable?: boolean
+  placeable_category?: 'building' | 'crafting' | 'decoration' | 'storage' | 'furniture' | 'structure' | null
+  placement_metadata?: Record<string, any> | null
 }
 
 export interface SpriteLinkData {
@@ -45,51 +52,69 @@ export class ItemService {
    * Get item definitions with optional filters
    */
   static async getItemDefinitions(options: ItemDefinitionFilters = {}): Promise<ItemDefinition[]> {
-    let query = supabase
-      .from('item_definitions')
-      .select('*')
-      .order('name', { ascending: true })
+    // Build SQL query with filters
+    let sql = 'SELECT * FROM item_definitions WHERE 1=1';
+    const params: any[] = [];
+    let paramIndex = 1;
     
     // Apply filters
     if (options.filters) {
       if (options.filters.item_type) {
-        query = query.eq('item_type', options.filters.item_type)
+        sql += ` AND item_type = $${paramIndex++}`;
+        params.push(options.filters.item_type);
       }
       if (options.filters.rarity) {
-        query = query.eq('rarity', options.filters.rarity)
+        sql += ` AND rarity = $${paramIndex++}`;
+        params.push(options.filters.rarity);
       }
       if (options.filters.is_active !== undefined) {
-        query = query.eq('is_active', options.filters.is_active)
+        sql += ` AND is_active = $${paramIndex++}`;
+        params.push(options.filters.is_active);
+      }
+      if (options.filters.is_placeable !== undefined) {
+        sql += ` AND is_placeable = $${paramIndex++}`;
+        params.push(options.filters.is_placeable);
+      }
+      if (options.filters.placeable_category) {
+        sql += ` AND placeable_category = $${paramIndex++}`;
+        params.push(options.filters.placeable_category);
       }
     }
     
     // Apply search (searches name and description)
     if (options.search) {
-      query = query.or(`name.ilike.%${options.search}%,description.ilike.%${options.search}%`)
+      sql += ` AND (name ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`;
+      params.push(`%${options.search}%`);
+      paramIndex++;
     }
     
-    const { data, error } = await query
+    sql += ' ORDER BY name ASC';
+    
+    const result = await pgQuery<ItemDefinition>(sql, params);
+    const data = result.data;
+    const error = result.error;
     
     if (error) {
-      console.error('❌ Error fetching item definitions:', error)
-      throw new Error(`Failed to fetch item definitions: ${error.message}`)
+      console.error('❌ Error fetching item definitions:', error);
+      throw new Error(`Failed to fetch item definitions: ${error instanceof Error ? error.message : String(error)}`);
     }
     
-    return (data || []) as ItemDefinition[]
+    return (data || []) as ItemDefinition[];
   }
   
   /**
    * Get single item definition by ID
    */
   static async getItemDefinition(itemId: string): Promise<ItemDefinition | null> {
-    const { data, error } = await supabase
-      .from('item_definitions')
-      .select('*')
-      .eq('item_id', itemId)
-      .single()
+    const result = await pgQuerySingle<ItemDefinition>(
+      'SELECT * FROM item_definitions WHERE item_id = $1',
+      [itemId]
+    );
+    const data = result.data;
+    const error = result.error;
     
     if (error) {
-      if (error.code === 'PGRST116') {
+      if (error.message === 'No rows returned') {
         // Not found
         return null
       }
@@ -112,11 +137,16 @@ export class ItemService {
       updated_at: now
     }
     
-    const { data, error } = await supabase
-      .from('item_definitions')
-      .insert(itemData)
-      .select()
-      .single()
+    const insertKeys = Object.keys(itemData);
+    const insertValues = Object.values(itemData);
+    const columns = insertKeys.join(', ');
+    const placeholders = insertKeys.map((_, i) => `$${i + 1}`).join(', ');
+    const result = await pgQuerySingle<ItemDefinition>(
+      `INSERT INTO item_definitions (${columns}) VALUES (${placeholders}) RETURNING *`,
+      insertValues
+    );
+    const data = result.data;
+    const error = result.error;
     
     if (error) {
       console.error('❌ Error creating item definition:', error)
@@ -138,15 +168,20 @@ export class ItemService {
       updated_at: new Date().toISOString()
     }
     
-    const { data, error } = await supabase
-      .from('item_definitions')
-      .update(updateData)
-      .eq('item_id', itemId)
-      .select()
-      .single()
+    const updateKeys = Object.keys(updateData).filter(key => updateData[key as keyof typeof updateData] !== undefined);
+    const updateValues = updateKeys.map(key => updateData[key as keyof typeof updateData]);
+    const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+    
+    const result = await pgQuerySingle<ItemDefinition>(
+      `UPDATE item_definitions SET ${setClause} WHERE item_id = $${updateKeys.length + 1} RETURNING *`,
+      [...updateValues, itemId]
+    );
+    
+    const data = result.data;
+    const error = result.error;
     
     if (error) {
-      if (error.code === 'PGRST116') {
+      if (error.message === 'No rows returned') {
         // Not found
         return null
       }
@@ -161,12 +196,18 @@ export class ItemService {
    * Soft delete item definition (set is_active = false)
    */
   static async deleteItemDefinition(itemId: string): Promise<boolean> {
-    const { error } = await supabase
-      .from('item_definitions')
-      .update({ is_active: false, updated_at: new Date().toISOString() })
-      .eq('item_id', itemId)
+    const result = await pgQuerySingle<ItemDefinition>(
+      'UPDATE item_definitions SET is_active = $1, updated_at = $2 WHERE item_id = $3 RETURNING *',
+      [false, new Date().toISOString(), itemId]
+    );
+    
+    const error = result.error;
     
     if (error) {
+      if (error.message === 'No rows returned') {
+        // Not found - consider it a successful deletion
+        return true
+      }
       console.error('❌ Error deleting item definition:', error)
       throw new Error(`Failed to delete item definition: ${error.message}`)
     }
@@ -202,19 +243,22 @@ export class ItemService {
         break
     }
     
-    const { data, error } = await supabase
-      .from('item_definitions')
-      .update(updateData)
-      .eq('item_id', itemId)
-      .select()
-      .single()
+    const updateKeys = Object.keys(updateData);
+    const updateValues = Object.values(updateData);
+    const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+    const result = await pgQuerySingle<ItemDefinition>(
+      `UPDATE item_definitions SET ${setClause} WHERE item_id = $${updateKeys.length + 1} RETURNING *`,
+      [...updateValues, itemId]
+    );
+    const data = result.data;
+    const error = result.error;
     
     if (error) {
-      if (error.code === 'PGRST116') {
-        return null
+      if (error.message === 'No rows returned') {
+        return null;
       }
-      console.error('❌ Error linking sprite:', error)
-      throw new Error(`Failed to link sprite: ${error.message}`)
+      console.error('❌ Error linking sprite:', error);
+      throw new Error(`Failed to link sprite: ${error instanceof Error ? error.message : String(error)}`);
     }
     
     return data as ItemDefinition

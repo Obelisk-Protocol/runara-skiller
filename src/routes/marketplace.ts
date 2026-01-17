@@ -2,36 +2,24 @@ import { Router } from 'express';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { program, connection, serverKeypair, PROGRAM_ID, getCobxMint, createWeb2IdHash } from '../config/anchor';
-import { supabase } from '../config/database';
+import { Client } from 'pg';
 import { z } from 'zod';
 
 const router = Router();
 
-// Helper to authenticate user from Supabase auth header
-async function authenticateUser(req: any): Promise<{ userId: string; profile: any }> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Unauthorized - missing or invalid auth header');
+// Use shared auth helper
+import { authenticateUser } from '../utils/auth-helper';
+
+// Helper to get PostgreSQL client
+function getPgClient(): InstanceType<typeof Client> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    throw new Error('DATABASE_URL not set');
   }
-
-  const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  
-  if (error || !user) {
-    throw new Error('Unauthorized - invalid token');
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
-
-  if (profileError || !profile) {
-    throw new Error('Profile not found');
-  }
-
-  return { userId: user.id, profile };
+  return new Client({
+    connectionString: dbUrl,
+    ssl: { rejectUnauthorized: false }
+  });
 }
 
 // POST /api/marketplace/list-item - List item on marketplace
@@ -204,12 +192,19 @@ router.post('/buy-item', async (req: any, res: any) => {
       buyerCobxAccount = pda;
     }
 
-    // Get seller's cOBX account
-    const { data: sellerProfile } = await supabase
-      .from('profiles')
-      .select('id, wallet_address, cobx_token_account')
-      .eq('player_pda', listingAccount.sellerPda.toBase58())
-      .single();
+    // Get seller's cOBX account from PostgreSQL
+    const client = getPgClient();
+    let sellerProfile: any = null;
+    try {
+      await client.connect();
+      const result = await client.query(
+        'SELECT id, wallet_address, cobx_token_account FROM profiles WHERE player_pda = $1',
+        [listingAccount.sellerPda.toBase58()]
+      );
+      sellerProfile = result.rows[0] || null;
+    } finally {
+      await client.end();
+    }
 
     let sellerCobxAccount: PublicKey;
     if (sellerProfile?.cobx_token_account) {

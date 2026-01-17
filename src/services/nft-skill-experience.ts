@@ -1,5 +1,5 @@
 import { Client as PgClient } from 'pg'
-import { supabase } from '../config/database'
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper'
 import { NftColumns } from './database'
 import { updateCharacterCNFT } from './cnft'
 import { CharacterStats } from '../types/character'
@@ -71,12 +71,8 @@ export function computeProgress(experience: number): XpProgress {
 }
 
 function getPgConn(): string | null {
-  // Force REST path unless explicitly disabled
-  if (process.env.FORCE_SUPABASE_REST !== 'false') return null
-  const supa = process.env.SUPABASE_DB_URL || null
-  if (supa) return supa
-  if (process.env.ALLOW_DATABASE_URL_FALLBACK === 'true') return process.env.DATABASE_URL || null
-  return null
+  // Use Railway PostgreSQL connection
+  return process.env.DATABASE_URL || process.env.SKILLER_DATABASE_URL || null
 }
 
 function needsSsl(conn: string): boolean {
@@ -286,153 +282,24 @@ export async function addSkillXp(
     }
   }
 
-  const { data: existing } = await supabase
-    .from('nft_skill_experience')
-    .select('*')
-    .eq('asset_id', assetId)
-    .eq('skill', skill)
-    .maybeSingle()
-  const currentXp = Number((existing as any)?.experience || 0)
-  const nextXp = currentXp + experienceGain
-  const currentLevel = Number((existing as any)?.level || 1)
-  const computedLevel = xpToLevel(nextXp)
-  const leveledUp = computedLevel > currentLevel
-  
-  // Log level-up detection for debugging
-  if (leveledUp) {
-    console.log(`🎉 [LEVEL_UP] ${skill} leveled up! Level ${currentLevel} -> ${computedLevel} (XP: ${currentXp} -> ${nextXp})`)
-  }
-  
-  // Always update level to match XP (ensures level is always in sync)
-  const { error: upErr } = existing
-    ? await supabase
-        .from('nft_skill_experience')
-        .update({ experience: nextXp, level: computedLevel, pending_onchain_update: leveledUp, updated_at: new Date().toISOString() })
-        .eq('asset_id', assetId)
-        .eq('skill', skill)
-    : await supabase
-        .from('nft_skill_experience')
-        .insert({ asset_id: assetId, skill, experience: nextXp, level: computedLevel, pending_onchain_update: leveledUp })
-  if (upErr) throw upErr
-  
-  // Always update nfts table to keep level in sync (not just on level up)
-  let updatedStats: CharacterStats | null = null
-  let playerPda: string | null = null
-  
-  if (computedLevel !== currentLevel) {
-    const nftsRow = await NftColumns.get(assetId)
-    playerPda = nftsRow?.player_pda || null
-    if (nftsRow) {
-      // CRITICAL: Load ALL skills from nft_skill_experience table (source of truth)
-      const allSkills = await getAllSkillXp(assetId)
-      const stats = NftColumns.columnsToStats(nftsRow, allSkills)
-      
-      // Update the specific skill that just leveled up
-      const currentSkillLevel = Number(stats.skills[skill]?.level || 1)
-      const targetLevel = Math.max(currentSkillLevel, computedLevel)
-      stats.skills[skill] = { level: targetLevel, experience: nextXp }
-      
-      // Recalculate combatLevel and totalLevel from updated skills
-      const totals = NftColumns.computeTotalsFromSkills(stats.skills)
-      
-      updatedStats = { 
-        ...stats, 
-        combatLevel: totals.combat_level,
-        totalLevel: totals.total_level
-      }
-      console.log(`📊 [Supabase] Final stats for cNFT update: ${skill}=${targetLevel}, combatLevel=${totals.combat_level}, totalLevel=${totals.total_level}`)
-      
-      // Update database (only metadata now, skills are in nft_skill_experience)
-      await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, updatedStats)
-    }
-  }
-  
-  // Update cNFT if skill leveled up (expensive operation, only on actual level up)
-  // CRITICAL: This must run OUTSIDE the level comparison check to ensure cNFT updates even if DB level was already correct
-  // leveledUp flag is authoritative - if true, we should update cNFT regardless of nfts table state
-  if (leveledUp) {
-    try {
-      // If we didn't already load stats above, load them now for cNFT update
-      if (!updatedStats) {
-        const nftsRow = await NftColumns.get(assetId)
-        playerPda = nftsRow?.player_pda || null
-        if (nftsRow) {
-          const allSkills = await getAllSkillXp(assetId)
-          const stats = NftColumns.columnsToStats(nftsRow, allSkills)
-          
-          // Update the specific skill that just leveled up
-          const currentSkillLevel = Number(stats.skills[skill]?.level || 1)
-          const targetLevel = Math.max(currentSkillLevel, computedLevel)
-          stats.skills[skill] = { level: targetLevel, experience: nextXp }
-          
-          // Recalculate combatLevel and totalLevel from updated skills
-          const totals = NftColumns.computeTotalsFromSkills(stats.skills)
-          
-          updatedStats = { 
-            ...stats, 
-            combatLevel: totals.combat_level,
-            totalLevel: totals.total_level
-          }
-          // Also update database if we're in this path
-          await NftColumns.upsertMergeMaxFromStats(assetId, playerPda, updatedStats)
-        }
-      }
-      
-      if (updatedStats) {
-        console.log(`🔄 [Supabase] Updating cNFT for skill level up: ${skill} -> level ${computedLevel} (was ${currentLevel})`)
-        
-        // Update URI (includes full metadata with new skill levels)
-        const cnftResult = await updateCharacterCNFT(assetId, updatedStats, playerPda || undefined)
-        if (cnftResult.success) {
-          console.log(`✅ [Supabase] cNFT URI updated successfully for ${skill} level up to level ${computedLevel}`)
-          
-          // CRITICAL: Also update on-chain name to reflect new combat level
-          // URI update doesn't change the on-chain name field, so we need a separate name update
-          try {
-            const { updateCNFTNameOnly } = await import('./cnft');
-            const nameResult = await updateCNFTNameOnly(assetId, updatedStats.name, playerPda || undefined);
-            if (nameResult.success) {
-              console.log(`✅ [Supabase] cNFT name updated on-chain to reflect new level: ${nameResult.signature}`);
-            } else {
-              console.warn(`⚠️ [Supabase] Failed to update cNFT name after level up: ${nameResult.error}`);
-            }
-          } catch (nameErr) {
-            console.warn(`⚠️ [Supabase] Error updating cNFT name after level up:`, nameErr);
-            // Don't fail the whole operation - URI update succeeded
-          }
-        } else {
-          console.warn(`⚠️ [Supabase] Failed to update cNFT: ${cnftResult.error}`)
-        }
-      } else {
-        console.warn(`⚠️ [Supabase] Cannot update cNFT: nfts row not found for assetId ${assetId}`)
-      }
-    } catch (cnftError) {
-      console.error(`❌ [Supabase] Error updating cNFT:`, cnftError)
-    }
-  }
-  const progress = computeProgress(nextXp)
-  return {
-    assetId,
-    skill,
-    experience: nextXp,
-    level: progress.level,
-    leveledUp,
-    xpForCurrentLevel: progress.xpForCurrentLevel,
-    xpForNextLevel: progress.xpForNextLevel,
-    progressPct: progress.progressPct,
-  }
+  // If no PostgreSQL connection available, throw error
+  throw new Error('DATABASE_URL or SKILLER_DATABASE_URL must be set for skill experience operations')
 }
 
 export async function getSkillXp(assetId: string, skill: CharacterSkill): Promise<{ experience: number; level: number } | null> {
-  const { data, error } = await supabase
-    .from('nft_skill_experience')
-    .select('experience, level')
-    .eq('asset_id', assetId)
-    .eq('skill', skill)
-    .maybeSingle()
-  if (error) return null
-  if (!data) return null
-  return { experience: Number((data as any).experience || 0), level: Number((data as any).level || 1) }
+  const result = await pgQuerySingle<{ experience: number; level: number }>(
+    'SELECT experience, level FROM nft_skill_experience WHERE asset_id = $1 AND skill = $2',
+    [assetId, skill]
+  )
+  
+  if (result.error || !result.data) {
+    return null
+  }
+  
+  return { 
+    experience: Number(result.data.experience || 0), 
+    level: Number(result.data.level || 1) 
+  }
 }
 
 export async function getAllSkillXp(assetId: string): Promise<Record<CharacterSkill, { experience: number; level: number }>> {
@@ -454,12 +321,14 @@ export async function getAllSkillXp(assetId: string): Promise<Record<CharacterSk
     alchemy: { experience: 0, level: 1 },
     construction: { experience: 0, level: 1 },
   }
-  const { data, error } = await supabase
-    .from('nft_skill_experience')
-    .select('skill, experience, level')
-    .eq('asset_id', assetId)
-  if (!error && Array.isArray(data)) {
-    for (const row of data as any[]) {
+  
+  const result = await pgQuery<{ skill: string; experience: number; level: number }>(
+    'SELECT skill, experience, level FROM nft_skill_experience WHERE asset_id = $1',
+    [assetId]
+  )
+  
+  if (!result.error && Array.isArray(result.data)) {
+    for (const row of result.data) {
       const sk = row.skill as CharacterSkill
       const xp = Number(row.experience || 0)
       // CRITICAL: Always calculate level from XP to ensure accuracy
@@ -468,14 +337,20 @@ export async function getAllSkillXp(assetId: string): Promise<Record<CharacterSk
       init[sk] = { experience: xp, level: calculatedLevel }
     }
   }
+  
   return init
 }
 
 export async function markAssetSynced(assetId: string): Promise<void> {
-  await supabase
-    .from('nft_skill_experience')
-    .update({ pending_onchain_update: false, updated_at: new Date().toISOString() })
-    .eq('asset_id', assetId)
+  const result = await pgQuery(
+    'UPDATE nft_skill_experience SET pending_onchain_update = $1, updated_at = $2 WHERE asset_id = $3',
+    [false, new Date().toISOString(), assetId]
+  )
+  
+  if (result.error) {
+    console.error('❌ Error marking asset as synced:', result.error)
+    throw new Error(`Failed to mark asset as synced: ${result.error.message}`)
+  }
 }
 
 

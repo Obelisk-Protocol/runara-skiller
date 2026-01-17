@@ -5,8 +5,9 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
+import { Client } from 'pg';
 import { ensureNftTable } from './services/bootstrap';
-import { supabase } from './config/database';
+// Note: supabase import removed - using PostgreSQL directly now
 import { getAllSkillXp, markAssetSynced } from './services/nft-skill-experience';
 import { NftColumns } from './services/database';
 
@@ -24,6 +25,12 @@ import cobxRoutes from './routes/cobx';
 import marketplaceRoutes from './routes/marketplace';
 import playersRoutes from './routes/players';
 import itemRoutes from './routes/items';
+import playerStructureRoutes from './routes/player-structures';
+import craftingRoutes from './routes/crafting';
+import authRoutes from './routes/auth';
+import profileRoutes from './routes/profiles';
+import nftRoutes from './routes/nfts';
+import characterSelectionRoutes from './routes/character-selection';
 
 // Load environment variables
 dotenv.config();
@@ -31,8 +38,7 @@ dotenv.config();
 // Validate critical environment variables at startup
 function validateEnvironment() {
   const requiredVars = [
-    'SUPABASE_URL',
-    'SUPABASE_SERVICE_ROLE',
+    'DATABASE_URL', // Railway PostgreSQL (required for migration)
     'PRIVATE_SERVER_WALLET',
     'SOLANA_CLUSTER'
   ];
@@ -48,6 +54,9 @@ function validateEnvironment() {
     console.error('❌ Missing required environment variables:', missing.join(', '));
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
+
+  // Note: SUPABASE_URL and SUPABASE_SERVICE_ROLE are no longer required
+  // Database now uses Railway PostgreSQL directly via DATABASE_URL
 
   // Validate cluster-specific token mints
   const cluster = (process.env.SOLANA_CLUSTER || '').toLowerCase();
@@ -82,8 +91,33 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Get allowed origins from env var (comma-separated list)
+    // CRITICAL: When using credentials, we MUST return the exact origin, not '*'
+    const allowedOrigins = process.env.CORS_ORIGIN 
+      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+      : ['http://localhost:3000', 'http://localhost:3001', 'https://obeliskparadox.com'];
+    
+    // For development: always allow localhost origins (needed for credentials)
+    if (origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:')) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      // For development, allow all origins (but credentials may fail)
+      // In production, only allow specific origins
+      callback(null, process.env.NODE_ENV === 'production' ? false : true);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-xp-timestamp', 'x-xp-signature']
 }));
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
@@ -101,39 +135,8 @@ if (!fs.existsSync(characterImagesDir)) {
   console.log(`📁 Character images directory (fallback): ${characterImagesDir}`);
 }
 
-// Initialize Supabase Storage bucket on startup
-(async () => {
-  try {
-    const { supabase } = await import('./config/database');
-    const { data: buckets, error } = await supabase.storage.listBuckets();
-    
-    if (error) {
-      console.warn(`⚠️ Failed to check Supabase Storage buckets: ${error.message}`);
-      return;
-    }
-
-    const bucketExists = buckets?.some(b => b.name === 'character-images');
-    
-    if (!bucketExists) {
-      console.log(`📦 Creating Supabase Storage bucket: character-images`);
-      const { error: createError } = await supabase.storage.createBucket('character-images', {
-        public: true,
-        fileSizeLimit: 5242880, // 5MB
-        allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp']
-      });
-      
-      if (createError) {
-        console.warn(`⚠️ Failed to create bucket: ${createError.message}`);
-      } else {
-        console.log(`✅ Supabase Storage bucket 'character-images' ready`);
-      }
-    } else {
-      console.log(`✅ Supabase Storage bucket 'character-images' exists`);
-    }
-  } catch (error) {
-    console.warn(`⚠️ Error initializing Supabase Storage: ${error instanceof Error ? error.message : String(error)}`);
-  }
-})();
+// Cloudflare R2 bucket is managed separately via Wrangler CLI
+// No initialization needed here - bucket is already created and configured
 
 // Serve character images statically with proper headers
 app.use('/character-images', express.static(characterImagesDir, {
@@ -168,6 +171,12 @@ app.use('/api/cobx', cobxRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/players', playersRoutes);
 app.use('/api/items', itemRoutes);
+app.use('/api/player-structures', playerStructureRoutes);
+app.use('/api/craft', craftingRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/profiles', profileRoutes);
+app.use('/api/nfts', nftRoutes);
+app.use('/api/character-selection', characterSelectionRoutes);
 
 // Root endpoint
 app.get('/', (req: any, res: any) => {
@@ -216,30 +225,68 @@ app.listen(PORT, '0.0.0.0', async () => {
   const cooldownMs = Number(process.env.XP_SYNC_COOLDOWN_MS || 60000)
   setInterval(async () => {
     try {
-      const thresholdIso = new Date(Date.now() - cooldownMs).toISOString()
-      // Find assets with any pending skill update older than cooldown
-      const { data, error } = await supabase
-        .from('nft_skill_experience')
-        .select('asset_id')
-        .eq('pending_onchain_update', true)
-        .lt('updated_at', thresholdIso)
-      if (error) return
-      const assetIds = Array.from(new Set((data || []).map((r: any) => r.asset_id))).slice(0, 10)
-      for (const assetId of assetIds) {
-        try {
-          const row = await NftColumns.get(assetId)
-          if (!row) { await markAssetSynced(assetId); continue }
-          const stats = await NftColumns.columnsToStatsWithSkills(row)
-          // Trigger on-chain JSON update using existing flow
-          const { updateCharacterCNFT } = await import('./services/cnft')
-          const res = await updateCharacterCNFT(assetId, stats, row.player_pda || undefined)
-          if (res.success) {
-            await markAssetSynced(assetId)
-          }
-        } catch (e) {
-          // leave pending; will retry on next tick
-        }
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) {
+        console.warn('⚠️ XP sync worker: DATABASE_URL not set, skipping');
+        return;
       }
-    } catch {}
+
+      const thresholdIso = new Date(Date.now() - cooldownMs).toISOString();
+      
+      // Query PostgreSQL for assets with pending updates
+      const sslNeeded = process.env.PGSSL === 'true' || 
+                       /supabase\.(co|net)/i.test(dbUrl) || 
+                       /render\.com/i.test(dbUrl) ||
+                       /railway\.app/i.test(dbUrl) ||
+                       process.env.NODE_ENV === 'production';
+      
+      const client = new Client({
+        connectionString: dbUrl,
+        ssl: sslNeeded ? { rejectUnauthorized: false } : undefined
+      } as any);
+
+      try {
+        await client.connect();
+        
+        interface AssetRow {
+          asset_id: string;
+        }
+        
+        const result = await client.query(`
+          SELECT DISTINCT asset_id 
+          FROM nft_skill_experience 
+          WHERE pending_onchain_update = true 
+          AND updated_at < $1
+          LIMIT 10
+        `, [thresholdIso]);
+
+        const rows = result.rows as AssetRow[];
+        const assetIds = rows.map((r: AssetRow) => r.asset_id);
+        
+        for (const assetId of assetIds) {
+          try {
+            const row = await NftColumns.get(assetId);
+            if (!row) { 
+              await markAssetSynced(assetId); 
+              continue;
+            }
+            const stats = await NftColumns.columnsToStatsWithSkills(row);
+            // Trigger on-chain JSON update using existing flow
+            const { updateCharacterCNFT } = await import('./services/cnft');
+            const res = await updateCharacterCNFT(assetId, stats, row.player_pda || undefined);
+            if (res.success) {
+              await markAssetSynced(assetId);
+            }
+          } catch (e) {
+            // leave pending; will retry on next tick
+            console.warn(`⚠️ XP sync error for asset ${assetId}:`, e instanceof Error ? e.message : String(e));
+          }
+        }
+      } finally {
+        await client.end();
+      }
+    } catch (err) {
+      console.warn('⚠️ XP sync worker error:', err instanceof Error ? err.message : String(err));
+    }
   }, cooldownMs)
 });

@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { SkillDatabase } from '../services/database';
 import { addSkillXp } from '../services/nft-skill-experience';
-import { supabase } from '../config/database';
+// Supabase removed - use PostgreSQL via pg-helper
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper';
 
 const router = Router();
 
@@ -92,20 +93,21 @@ router.post('/add-experience', async (req: any, res: any) => {
       console.log(`🔍 [Skills] Looking up profile for playerPDA: ${validatedData.playerPDA}`);
       
       // Try by player_pda first (Solana address), then fall back to id (UUID)
-      let { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot, player_pda')
-        .eq('player_pda', validatedData.playerPDA)
-        .single();
+      let profileResult = await pgQuerySingle<any>(
+        'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot, player_pda FROM profiles WHERE player_pda = $1',
+        [validatedData.playerPDA]
+      );
+      let profile = profileResult.data;
+      let profileError = profileResult.error;
       
       if (profileError || !profile) {
         console.log(`🔍 [Skills] Not found by player_pda, trying by id (UUID)...`);
-        const altResult = await supabase
-          .from('profiles')
-          .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot, player_pda')
-          .eq('id', validatedData.playerPDA)
-          .single();
+        const altResult = await pgQuerySingle<any>(
+          'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot, player_pda FROM profiles WHERE id = $1',
+          [validatedData.playerPDA]
+        );
         profile = altResult.data as any;
+        profileError = altResult.error;
         profileError = altResult.error as any;
       }
       

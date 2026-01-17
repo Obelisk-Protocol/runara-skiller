@@ -3,36 +3,22 @@ import { Connection, PublicKey, Transaction, TransactionInstruction, Keypair } f
 import { AnchorProvider, Program, BN } from '@coral-xyz/anchor';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, getMint, getAccount, createTransferInstruction, createBurnInstruction, getAssociatedTokenAddressSync, createAssociatedTokenAccountInstruction } from '@solana/spl-token';
 import { program, connection, serverKeypair, PROGRAM_ID, getObxMint, getCobxMint, createWeb2IdHash } from '../config/anchor';
-import { supabase } from '../config/database';
+import { Client } from 'pg';
 import { z } from 'zod';
+import { authenticateUser } from '../utils/auth-helper';
 
 const router = Router();
 
-// Helper to authenticate user from Supabase auth header
-async function authenticateUser(req: any): Promise<{ userId: string; profile: any }> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Unauthorized - missing or invalid auth header');
+// Helper to get PostgreSQL client
+function getPgClient(): InstanceType<typeof Client> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    throw new Error('DATABASE_URL not set');
   }
-
-  const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  
-  if (error || !user) {
-    throw new Error('Unauthorized - invalid token');
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
-
-  if (profileError || !profile) {
-    throw new Error('Profile not found');
-  }
-
-  return { userId: user.id, profile };
+  return new Client({
+    connectionString: dbUrl,
+    ssl: { rejectUnauthorized: false }
+  });
 }
 
 // GET /api/cobx/balance - Query cOBX balance
@@ -774,7 +760,8 @@ router.post('/mines-cashout', async (req: any, res: any) => {
 
     console.log(`💰 Minting ${winAmount} cOBX (${mintAmount} lamports) for mines win...`);
 
-    const tx = await program.methods
+    // @ts-ignore - Type instantiation is excessively deep (Anchor type inference limitation)
+    const tx = await (program.methods as any)
       .mintCobxReward(mintBN)
       .accounts({
         config: configPDA,
@@ -825,14 +812,23 @@ router.post('/create-account', async (req: any, res: any) => {
 
     console.log(`🔧 COBX: Creating cOBX token account for wallet: ${walletAddress}`);
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('wallet_address', walletAddress)
-      .single();
+    const client = getPgClient();
+    let profile: any = null;
+    try {
+      await client.connect();
+      const result = await client.query(
+        'SELECT * FROM profiles WHERE wallet_address = $1',
+        [walletAddress]
+      );
+      profile = result.rows[0] || null;
+    } catch (error) {
+      console.error('❌ COBX: Error fetching profile:', error);
+      return res.status(404).json({ error: 'Profile not found' });
+    } finally {
+      await client.end();
+    }
 
-    if (profileError) {
-      console.error('❌ COBX: Error fetching profile:', profileError);
+    if (!profile) {
       return res.status(404).json({ error: 'Profile not found' });
     }
 
@@ -869,14 +865,18 @@ router.post('/create-account', async (req: any, res: any) => {
     if (accountInfo) {
       console.log(`✅ COBX: Account already exists on-chain: ${cobxTokenAccount.toBase58()}`);
 
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ cobx_token_account: cobxTokenAccount.toBase58() })
-        .eq('wallet_address', walletAddress);
-
-      if (updateError) {
+      const updateClient = getPgClient();
+      try {
+        await updateClient.connect();
+        await updateClient.query(
+          'UPDATE profiles SET cobx_token_account = $1 WHERE wallet_address = $2',
+          [cobxTokenAccount.toBase58(), walletAddress]
+        );
+      } catch (updateError) {
         console.error('❌ COBX: Error updating profile with cOBX account:', updateError);
         return res.status(500).json({ error: 'Failed to update profile' });
+      } finally {
+        await updateClient.end();
       }
 
       return res.json({
@@ -889,14 +889,18 @@ router.post('/create-account', async (req: any, res: any) => {
     const transaction = new Transaction().add(createAccountInstruction);
     transaction.feePayer = walletPubkey;
 
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ cobx_token_account: cobxTokenAccount.toBase58() })
-      .eq('wallet_address', walletAddress);
-
-    if (updateError) {
+    const updateClient = getPgClient();
+    try {
+      await updateClient.connect();
+      await updateClient.query(
+        'UPDATE profiles SET cobx_token_account = $1 WHERE wallet_address = $2',
+        [cobxTokenAccount.toBase58(), walletAddress]
+      );
+    } catch (updateError) {
       console.error('❌ COBX: Error updating profile with cOBX account:', updateError);
       return res.status(500).json({ error: 'Failed to update profile' });
+    } finally {
+      await updateClient.end();
     }
 
     console.log(`✅ COBX: Successfully created cOBX account: ${cobxTokenAccount.toBase58()}`);

@@ -1,114 +1,6 @@
 import { Client } from 'pg'
-
-const CREATE_TABLE_SQL = `
-create table if not exists nfts (
-  asset_id text primary key,
-  player_pda text,
-  name text not null,
-  level int not null default 1,
-  combat_level int not null default 1,
-  total_level int not null default 9,
-  version text not null default '2.0.0',
-
-  -- Combat Skills
-  attack int not null default 1,
-  strength int not null default 1,
-  defense int not null default 1,
-  magic int not null default 1,
-  projectiles int not null default 1,
-  vitality int not null default 1,
-  crafting int not null default 1,
-  luck int not null default 1,
-  
-  -- Gathering Skills
-  mining int not null default 1,
-  woodcutting int not null default 1,
-  fishing int not null default 1,
-  hunting int not null default 1,
-  
-  -- Crafting Skills
-  smithing int not null default 1,
-  cooking int not null default 1,
-  alchemy int not null default 1,
-  construction int not null default 1,
-
-  last_arweave_uri text, -- Deprecated: kept for backward compatibility
-  last_update_sig text,
-  state_version int not null default 0,
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_nfts_player_pda on nfts(player_pda);
-
--- Create nft_metadata table for storing NFT metadata JSON (replaces Arweave)
-create table if not exists nft_metadata (
-  asset_id text primary key,
-  metadata_json jsonb not null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_nft_metadata_asset_id on nft_metadata(asset_id);
-
--- Add missing columns if they don't exist (for existing tables)
--- Also rename old abbreviated columns to full names
-do $$
-begin
-  -- Rename old abbreviated columns to full names (if they exist)
-  if exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'att') then
-    alter table nfts rename column att to attack;
-  end if;
-  if exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'str') then
-    alter table nfts rename column str to strength;
-  end if;
-  if exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'def') then
-    alter table nfts rename column def to defense;
-  end if;
-  if exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'mag') then
-    alter table nfts rename column mag to magic;
-  end if;
-  if exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'pro') then
-    alter table nfts rename column pro to projectiles;
-  end if;
-  if exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'vit') then
-    alter table nfts rename column vit to vitality;
-  end if;
-  if exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'cra') then
-    alter table nfts rename column cra to crafting;
-  end if;
-  if exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'luc') then
-    alter table nfts rename column luc to luck;
-  end if;
-  
-  -- Add gathering skills if missing
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'mining') then
-    alter table nfts add column mining int not null default 1;
-  end if;
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'woodcutting') then
-    alter table nfts add column woodcutting int not null default 1;
-  end if;
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'fishing') then
-    alter table nfts add column fishing int not null default 1;
-  end if;
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'hunting') then
-    alter table nfts add column hunting int not null default 1;
-  end if;
-  
-  -- Add crafting skills if missing
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'smithing') then
-    alter table nfts add column smithing int not null default 1;
-  end if;
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'cooking') then
-    alter table nfts add column cooking int not null default 1;
-  end if;
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'alchemy') then
-    alter table nfts add column alchemy int not null default 1;
-  end if;
-  if not exists (select 1 from information_schema.columns where table_name = 'nfts' and column_name = 'construction') then
-    alter table nfts add column construction int not null default 1;
-  end if;
-end $$;
-`;
+import * as fs from 'fs'
+import * as path from 'path'
 
 /**
  * Retry helper with exponential backoff
@@ -134,10 +26,14 @@ async function retryWithBackoff<T>(
   throw lastError;
 }
 
+/**
+ * Bootstrap complete database schema
+ * Runs on service startup to ensure all tables, indexes, functions, and triggers exist
+ */
 export async function ensureNftTable(): Promise<void> {
-  const conn = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+  const conn = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
   if (!conn) {
-    console.log('ℹ️ Skipping NFT table bootstrap: SUPABASE_DB_URL/DATABASE_URL not set');
+    console.log('ℹ️ Skipping database bootstrap: DATABASE_URL not set');
     return;
   }
 
@@ -146,34 +42,83 @@ export async function ensureNftTable(): Promise<void> {
     await retryWithBackoff(async () => {
       let client: any = null;
       try {
-        const sslNeeded = process.env.PGSSL === 'true' || /supabase\.(co|net)/i.test(conn) || /render\.com/i.test(conn);
+        // Determine if SSL is needed (Railway PostgreSQL uses SSL in production)
+        const sslNeeded = process.env.PGSSL === 'true' || 
+                         /supabase\.(co|net)/i.test(conn) || 
+                         /render\.com/i.test(conn) ||
+                         /railway\.app/i.test(conn) ||
+                         process.env.NODE_ENV === 'production';
+        
         client = new Client({ 
           connectionString: conn, 
           ssl: sslNeeded ? { rejectUnauthorized: false } : undefined 
         } as any);
+        
         await client.connect();
+        console.log('📊 Connected to PostgreSQL database');
+        
+        // Load complete schema migration
+        // Try multiple possible paths (development vs production)
+        const possiblePaths = [
+          path.join(__dirname, '../../migrations/999_complete_schema_migration.sql'),
+          path.join(process.cwd(), 'migrations/999_complete_schema_migration.sql'),
+          path.join(process.cwd(), 'obelisk-skiller/migrations/999_complete_schema_migration.sql'),
+        ];
+        
+        let migrationPath: string | null = null;
+        for (const testPath of possiblePaths) {
+          if (fs.existsSync(testPath)) {
+            migrationPath = testPath;
+            break;
+          }
+        }
+        
+        if (!migrationPath) {
+          throw new Error(`Migration file not found. Tried: ${possiblePaths.join(', ')}`);
+        }
+        
+        const migrationSQL = fs.readFileSync(migrationPath, 'utf-8');
+        console.log(`📝 Loading complete schema migration (${(migrationSQL.length / 1024).toFixed(2)} KB)...`);
+        
+        // Also load auth fields migration if it exists
+        const authMigrationPaths = [
+          path.join(__dirname, '../../migrations/010_add_auth_fields.sql'),
+          path.join(process.cwd(), 'migrations/010_add_auth_fields.sql'),
+          path.join(process.cwd(), 'obelisk-skiller/migrations/010_add_auth_fields.sql'),
+        ];
+        
+        let authMigrationSQL: string | null = null;
+        for (const testPath of authMigrationPaths) {
+          if (fs.existsSync(testPath)) {
+            authMigrationSQL = fs.readFileSync(testPath, 'utf-8');
+            console.log(`📝 Loading auth fields migration...`);
+            break;
+          }
+        }
         
         // Use a transaction for atomicity
-        await client.query('begin');
-        await client.query(CREATE_TABLE_SQL);
+        await client.query('BEGIN');
+        await client.query(migrationSQL);
+        if (authMigrationSQL) {
+          await client.query(authMigrationSQL);
+        }
+        await client.query('COMMIT');
         
-        // Also ensure nft_metadata table exists
-        await client.query(`
-          create table if not exists nft_metadata (
-            asset_id text primary key,
-            metadata_json jsonb not null,
-            created_at timestamptz not null default now(),
-            updated_at timestamptz not null default now()
-          );
-          create index if not exists idx_nft_metadata_asset_id on nft_metadata(asset_id);
+        // Verify schema was created
+        const { rows: tables } = await client.query(`
+          SELECT table_name 
+          FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_type = 'BASE TABLE'
+          ORDER BY table_name
         `);
         
-        await client.query('commit');
+        console.log(`✅ Database schema bootstrap complete!`);
+        console.log(`📊 Created/verified ${tables.length} tables`);
         
-        console.log('✅ Ensured nfts and nft_metadata tables and indexes exist');
       } catch (e) {
         try { 
-          await client?.query('rollback'); 
+          await client?.query('ROLLBACK'); 
         } catch (rollbackError) {
           // Ignore rollback errors
         }
@@ -188,11 +133,10 @@ export async function ensureNftTable(): Promise<void> {
       }
     }, 3, 1000); // 3 retries, starting with 1 second delay
   } catch (e: any) {
-    // Log warning but don't fail server startup - table likely already exists
+    // Log warning but don't fail server startup - schema likely already exists
     const errorMsg = e instanceof Error ? e.message : String(e);
-    console.warn('⚠️ Failed to ensure nfts table after retries:', errorMsg);
-    console.warn('ℹ️ This is usually non-fatal if the table already exists. Service will continue.');
-    console.warn('ℹ️ The service will use Supabase REST API if direct PostgreSQL connection fails.');
+    console.warn('⚠️ Database bootstrap completed with warnings:', errorMsg);
+    console.warn('ℹ️ This is usually non-fatal if the schema already exists. Service will continue.');
   }
 }
 

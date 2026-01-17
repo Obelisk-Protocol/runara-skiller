@@ -1,5 +1,7 @@
 import { Router } from 'express'
-import { supabase } from '../config/database'
+// Supabase removed - use PostgreSQL via pg-helper
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper'
+import { verifyAuthToken } from '../utils/auth-helper'
 import { connection, serverKeypair, getCobxMint } from '../config/anchor'
 import { getAccount, getMint, createBurnInstruction } from '@solana/spl-token'
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token'
@@ -18,7 +20,7 @@ const SLOT_PRICES: Record<number, number> = {
   5: 500_000,
 }
 
-// Helper to authenticate user from Supabase auth header
+// Helper to authenticate user from JWT token
 async function authenticateUser(req: any): Promise<{ userId: string; profile: any }> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -26,23 +28,25 @@ async function authenticateUser(req: any): Promise<{ userId: string; profile: an
   }
 
   const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const authResult = await verifyAuthToken(token);
   
-  if (error || !user) {
+  if (authResult.error || !authResult.data?.user) {
     throw new Error('Unauthorized - invalid token');
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
+  const profileResult = await pgQuerySingle<any>(
+    'SELECT * FROM profiles WHERE id = $1',
+    [authResult.data.user.id]
+  );
+  
+  const profile = profileResult.data;
+  const profileError = profileResult.error;
 
   if (profileError || !profile) {
     throw new Error('Profile not found');
   }
 
-  return { userId: user.id, profile };
+  return { userId: authResult.data.user.id, profile };
 }
 
 // POST /api/slots/mint - Mint character to slot with payment
@@ -244,11 +248,12 @@ router.post('/mint', async (req: any, res: any) => {
 
       // Update profiles table with assetId in the correct slot
       try {
-        const { data: updatedProfile, error: fetchError } = await supabase
-          .from('profiles')
-          .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
-          .eq('player_pda', profile.player_pda)
-          .single();
+        const profileResult = await pgQuerySingle<any>(
+          'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot FROM profiles WHERE player_pda = $1',
+          [profile.player_pda]
+        );
+        const updatedProfile = profileResult.data;
+        const fetchError = profileResult.error;
 
         if (updatedProfile && !fetchError) {
           // Helper: treat null/''/'EMPTY'/'NULL' as empty
@@ -269,10 +274,13 @@ router.post('/mint', async (req: any, res: any) => {
               updateData.active_character_slot = slot;
             }
 
-            const { error: updateError } = await supabase
-              .from('profiles')
-              .update(updateData)
-              .eq('player_pda', profile.player_pda);
+            const updateKeys = Object.keys(updateData);
+            const updateValues = Object.values(updateData);
+            const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+            const { error: updateError } = await pgQuery(
+              `UPDATE profiles SET ${setClause} WHERE player_pda = $${updateKeys.length + 1}`,
+              [...updateValues, profile.player_pda]
+            );
 
             if (updateError) {
               console.error('⚠️ Failed to update Supabase with asset ID:', updateError);
@@ -286,7 +294,7 @@ router.post('/mint', async (req: any, res: any) => {
                 signature: (createResult as any)?.signature
               });
             } else {
-              console.log('✅ Updated Supabase with asset ID:', resolvedId, 'in slot', slot);
+              console.log('✅ Updated database with asset ID:', resolvedId, 'in slot', slot);
             }
           } else {
             console.error('⚠️ Slot was occupied during character creation');
@@ -335,7 +343,7 @@ router.post('/mint', async (req: any, res: any) => {
             await new Promise(r => setTimeout(r, intervalMs));
           }
           if (!resolved) {
-            console.warn('⚠️ Background resolve timed out; nothing saved to Supabase');
+            console.warn('⚠️ Background resolve timed out; nothing saved to database');
             return;
           }
           // Seed DB row
@@ -352,13 +360,14 @@ router.post('/mint', async (req: any, res: any) => {
             console.warn('⚠️ Background seed nfts row failed:', seedErr);
           }
           // Update profile
-          const { data: profileData, error: fetchError } = await supabase
-            .from('profiles')
-            .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
-            .eq('player_pda', profile.player_pda)
-            .single();
+          const profileDataResult = await pgQuerySingle<any>(
+            'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot FROM profiles WHERE player_pda = $1',
+            [profile.player_pda]
+          );
+          const profileData = profileDataResult.data;
+          const fetchError = profileDataResult.error;
           if (fetchError || !profileData) {
-            console.error('⚠️ Background Supabase fetch error:', fetchError);
+            console.error('⚠️ Background database fetch error:', fetchError);
             return;
           }
           const isEmpty = (v: any) => {
@@ -372,14 +381,17 @@ router.post('/mint', async (req: any, res: any) => {
             if (!profileData.active_character_slot) {
               updateData.active_character_slot = slot;
             }
-            const { error: updateError } = await supabase
-              .from('profiles')
-              .update(updateData)
-              .eq('player_pda', profile.player_pda);
+            const updateKeys = Object.keys(updateData);
+            const updateValues = Object.values(updateData);
+            const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+            const { error: updateError } = await pgQuery(
+              `UPDATE profiles SET ${setClause} WHERE player_pda = $${updateKeys.length + 1}`,
+              [...updateValues, profile.player_pda]
+            );
             if (updateError) {
-              console.error('⚠️ Background Supabase update error:', updateError);
+              console.error('⚠️ Background database update error:', updateError);
             } else {
-              console.log('✅ Background saved resolved assetId to Supabase:', resolved);
+              console.log('✅ Background saved resolved assetId to database:', resolved);
             }
           }
         } catch (bgErr) {
@@ -442,18 +454,18 @@ router.get('/:player', async (req: any, res: any) => {
     const player = req.params.player
     if (!player) return res.status(400).json({ success: false, error: 'Missing player' })
     // try by id then by player_pda
-    let { data: profile, error } = await supabase
-      .from('profiles')
-      .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
-      .eq('id', player)
-      .single()
-    if (error || !profile) {
-      const alt = await supabase
-        .from('profiles')
-        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
-        .eq('player_pda', player)
-        .single()
-      profile = alt.data as any
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let profileResult = await pgQuerySingle<any>(
+      'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot FROM profiles WHERE id = $1',
+      [player]
+    );
+    let profile = profileResult.data;
+    if (!profile) {
+      const altResult = await pgQuerySingle<any>(
+        'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot FROM profiles WHERE player_pda = $1',
+        [player]
+      );
+      profile = altResult.data as any;
     }
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' })
     const slots = [1,2,3,4,5].map(i => ({
@@ -472,19 +484,19 @@ router.post('/', async (req: any, res: any) => {
   try {
     const { action, player, slot, assetId } = req.body || {}
     if (!action || !player) return res.status(400).json({ success: false, error: 'Missing action or player' })
-    const idFilter = { col: 'id', val: player }
-    let { data: profile } = await supabase
-      .from('profiles')
-      .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
-      .eq(idFilter.col, idFilter.val)
-      .single()
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const idFilter = { col: uuidPattern.test(player) ? 'id' : 'player_pda', val: player };
+    let profileResult = await pgQuerySingle<any>(
+      `SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot FROM profiles WHERE ${idFilter.col} = $1`,
+      [idFilter.val]
+    );
+    let profile = profileResult.data;
     if (!profile) {
-      const alt = await supabase
-        .from('profiles')
-        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot')
-        .eq('player_pda', player)
-        .single()
-      profile = alt.data as any
+      const altResult = await pgQuerySingle<any>(
+        'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot FROM profiles WHERE player_pda = $1',
+        [player]
+      );
+      profile = altResult.data as any;
     }
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' })
 
@@ -498,7 +510,13 @@ router.post('/', async (req: any, res: any) => {
       else if (!profile.character_cnft_5) updateData.character_cnft_5 = assetId
       if (Object.keys(updateData).length === 0) return res.status(400).json({ success: false, error: 'All character slots are full' })
       if (!profile.active_character_slot) updateData.active_character_slot = Number(Object.keys(updateData)[0].split('_').pop())
-      await supabase.from('profiles').update(updateData).or(`id.eq.${player},player_pda.eq.${player}`)
+      const updateKeys = Object.keys(updateData);
+      const updateValues = Object.values(updateData);
+      const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+      await pgQuery(
+        `UPDATE profiles SET ${setClause} WHERE id = $${updateKeys.length + 1} OR player_pda = $${updateKeys.length + 2}`,
+        [...updateValues, player, player]
+      )
       return res.json({ success: true, message: 'Character added to slot' })
     }
 
@@ -507,14 +525,23 @@ router.post('/', async (req: any, res: any) => {
       const updateData: any = {}
       updateData[`character_cnft_${slot}`] = null
       if (profile.active_character_slot === slot) updateData.active_character_slot = null
-      await supabase.from('profiles').update(updateData).or(`id.eq.${player},player_pda.eq.${player}`)
+      const updateKeys = Object.keys(updateData);
+      const updateValues = Object.values(updateData);
+      const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+      await pgQuery(
+        `UPDATE profiles SET ${setClause} WHERE id = $${updateKeys.length + 1} OR player_pda = $${updateKeys.length + 2}`,
+        [...updateValues, player, player]
+      )
       return res.json({ success: true, message: `Character removed from slot ${slot}` })
     }
 
     if (action === 'setActive') {
       if (!slot || slot < 1 || slot > 5) return res.status(400).json({ success: false, error: 'Invalid slot' })
       if (!(profile as any)[`character_cnft_${slot}`]) return res.status(400).json({ success: false, error: 'No character in that slot' })
-      await supabase.from('profiles').update({ active_character_slot: slot }).or(`id.eq.${player},player_pda.eq.${player}`)
+      await pgQuery(
+        'UPDATE profiles SET active_character_slot = $1 WHERE id = $2 OR player_pda = $2',
+        [slot, player]
+      )
       return res.json({ success: true, activeSlot: slot })
     }
 

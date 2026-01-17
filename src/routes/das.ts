@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { getDasUrl, getRpcUrl } from '../config/solana'
-import { supabase } from '../config/database'
+// Supabase removed - use PostgreSQL via pg-helper
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper'
 
 const router = Router()
 
@@ -156,11 +157,11 @@ router.post('/extract-asset-id', async (req: any, res: any) => {
     // Save into first empty character slot for this profile
     const idFilter = playerId ? { col: 'id', val: playerId } : playerPDA ? { col: 'player_pda', val: playerPDA } : null
     if (idFilter) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
-        .eq(idFilter.col, idFilter.val)
-        .single()
+      const profileResult = await pgQuerySingle<any>(
+        `SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5 FROM profiles WHERE ${idFilter.col} = $1`,
+        [idFilter.val]
+      );
+      const profile = profileResult.data;
       if (profile) {
         const updateData: any = {}
         if (!profile.character_cnft_1) updateData.character_cnft_1 = assetId
@@ -169,7 +170,13 @@ router.post('/extract-asset-id', async (req: any, res: any) => {
         else if (!profile.character_cnft_4) updateData.character_cnft_4 = assetId
         else if (!profile.character_cnft_5) updateData.character_cnft_5 = assetId
         if (Object.keys(updateData).length > 0) {
-          await supabase.from('profiles').update(updateData).eq(idFilter.col, idFilter.val)
+          const updateKeys = Object.keys(updateData);
+          const updateValues = Object.values(updateData);
+          const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+          await pgQuery(
+            `UPDATE profiles SET ${setClause} WHERE ${idFilter.col} = $${updateKeys.length + 1}`,
+            [...updateValues, idFilter.val]
+          )
         }
       }
     }
@@ -203,11 +210,11 @@ router.post('/resolve-from-signature', async (req: any, res: any) => {
     // Save to first empty slot if player provided
     const filter = playerPDA ? { col: 'player_pda', val: playerPDA } : playerId ? { col: 'id', val: playerId } : null
     if (filter) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5')
-        .eq(filter.col, filter.val)
-        .single()
+      const profileResult = await pgQuerySingle<any>(
+        `SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5 FROM profiles WHERE ${filter.col} = $1`,
+        [filter.val]
+      );
+      const profile = profileResult.data;
       if (profile) {
         const updateData: any = {}
         if (!profile.character_cnft_1) updateData.character_cnft_1 = assetId
@@ -216,7 +223,13 @@ router.post('/resolve-from-signature', async (req: any, res: any) => {
         else if (!profile.character_cnft_4) updateData.character_cnft_4 = assetId
         else if (!profile.character_cnft_5) updateData.character_cnft_5 = assetId
         if (Object.keys(updateData).length > 0) {
-          await supabase.from('profiles').update(updateData).eq(filter.col, filter.val)
+          const updateKeys = Object.keys(updateData);
+          const updateValues = Object.values(updateData);
+          const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+          await pgQuery(
+            `UPDATE profiles SET ${setClause} WHERE ${filter.col} = $${updateKeys.length + 1}`,
+            [...updateValues, filter.val]
+          )
         }
       }
     }

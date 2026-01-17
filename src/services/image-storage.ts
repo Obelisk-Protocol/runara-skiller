@@ -1,16 +1,39 @@
 /**
  * Image storage service
- * Saves character images to Supabase Storage and returns public URLs
- * CRITICAL: Railway uses ephemeral filesystems, so we must use Supabase Storage for persistence
+ * Saves character images to Cloudflare R2 and returns public URLs
+ * CRITICAL: Railway uses ephemeral filesystems, so we must use Cloudflare R2 for persistence
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { supabase } from '../config/database';
+import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
-const CHARACTER_IMAGES_BUCKET = 'character-images';
+const CHARACTER_IMAGES_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'obelisk-character-images';
 const CHARACTER_IMAGES_DIR = process.env.CHARACTER_IMAGES_DIR || 
   path.join(__dirname, '../../public/character-images');
+
+/**
+ * Get Cloudflare R2 S3 client
+ */
+function getR2Client(): S3Client | null {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const accessKeyId = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
+  const endpoint = process.env.CLOUDFLARE_R2_ENDPOINT;
+
+  if (!accountId || !accessKeyId || !secretAccessKey) {
+    return null;
+  }
+
+  return new S3Client({
+    region: 'auto',
+    endpoint: endpoint || `https://${accountId}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId,
+      secretAccessKey,
+    },
+  });
+}
 
 /**
  * Ensure character images directory exists (for local fallback)
@@ -22,36 +45,14 @@ function ensureDirectoryExists(): void {
 }
 
 /**
- * Ensure Supabase Storage bucket exists and is public
+ * Check if object exists in Cloudflare R2
  */
-async function ensureBucketExists(): Promise<void> {
+async function checkR2Exists(s3Client: S3Client, bucketName: string, key: string): Promise<boolean> {
   try {
-    // Check if bucket exists
-    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
-    
-    if (listError) {
-      console.warn(`⚠️ Failed to list buckets: ${listError.message}`);
-      return;
-    }
-
-    const bucketExists = buckets?.some(b => b.name === CHARACTER_IMAGES_BUCKET);
-    
-    if (!bucketExists) {
-      // Create bucket if it doesn't exist
-      const { error: createError } = await supabase.storage.createBucket(CHARACTER_IMAGES_BUCKET, {
-        public: true, // Make bucket public so images can be accessed directly
-        fileSizeLimit: 5242880, // 5MB max file size
-        allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp']
-      });
-      
-      if (createError) {
-        console.warn(`⚠️ Failed to create bucket ${CHARACTER_IMAGES_BUCKET}: ${createError.message}`);
-      } else {
-        console.log(`✅ Created Supabase Storage bucket: ${CHARACTER_IMAGES_BUCKET}`);
-      }
-    }
-  } catch (error) {
-    console.warn(`⚠️ Error ensuring bucket exists: ${error instanceof Error ? error.message : String(error)}`);
+    await s3Client.send(new HeadObjectCommand({ Bucket: bucketName, Key: key }));
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -67,146 +68,102 @@ function sanitizeFilename(name: string): string {
 }
 
 /**
- * Save character image to Supabase Storage
+ * Save character image to Cloudflare R2
  * Uses assetId for filename to avoid issues when character name changes
- * CRITICAL: Saves to Supabase Storage for persistence (Railway filesystem is ephemeral)
+ * CRITICAL: Saves to Cloudflare R2 for persistence (Railway filesystem is ephemeral)
  */
 export async function saveCharacterImage(
   nameOrAssetId: string,
   buffer: Buffer,
   useAssetId: boolean = false
 ): Promise<string> {
-  // Ensure bucket exists
-  await ensureBucketExists();
-
-  // If useAssetId is true, use assetId directly (sanitized)
-  // Otherwise, use name (for backward compatibility)
   const sanitized = useAssetId 
     ? sanitizeFilename(nameOrAssetId) // AssetId is already safe, but sanitize just in case
     : sanitizeFilename(nameOrAssetId);
   const filename = `${sanitized}.png`;
-  const filePath = `${filename}`; // Path in bucket (just filename for now)
+  const key = `character-images/${filename}`; // Path in bucket
 
-  try {
-    // Upload to Supabase Storage
-    const { data, error } = await supabase.storage
-      .from(CHARACTER_IMAGES_BUCKET)
-      .upload(filePath, buffer, {
-        contentType: 'image/png',
-        upsert: true, // Overwrite if exists
-        cacheControl: '3600', // Cache for 1 hour
+  const s3Client = getR2Client();
+  const publicUrl = process.env.CLOUDFLARE_R2_PUBLIC_URL;
+
+  // Try Cloudflare R2 first
+  if (s3Client && publicUrl) {
+    try {
+      const command = new PutObjectCommand({
+        Bucket: CHARACTER_IMAGES_BUCKET,
+        Key: key,
+        Body: buffer,
+        ContentType: 'image/png',
+        CacheControl: 'public, max-age=31536000', // Cache for 1 year
       });
 
-    if (error) {
-      console.error(`❌ Failed to upload image to Supabase Storage: ${error.message}`);
-      // Fallback to local filesystem for development
-      ensureDirectoryExists();
-      const localPath = path.join(CHARACTER_IMAGES_DIR, filename);
-      fs.writeFileSync(localPath, buffer);
-      console.log(`💾 Fallback: Saved image to local filesystem: ${localPath}`);
-      
-      const backendUrl = process.env.BACKEND_BASE_URL || 
-                         process.env.BACKEND_URL || 
-                         process.env.NEXT_PUBLIC_BACKEND_URL ||
-                         'http://localhost:8080';
-      return `${backendUrl.replace(/\/$/, '')}/character-images/${filename}`;
+      await s3Client.send(command);
+      const imageUrl = `${publicUrl.replace(/\/$/, '')}/${key}`;
+      console.log(`✅ Saved image to Cloudflare R2: ${imageUrl}`);
+      return imageUrl;
+    } catch (error) {
+      console.error(`❌ Error uploading to Cloudflare R2: ${error instanceof Error ? error.message : String(error)}`);
+      // Fall through to local filesystem fallback
     }
+  } else {
+    console.warn('⚠️ Cloudflare R2 not configured, using local filesystem fallback');
+  }
 
-    // Get public URL from Supabase Storage
-    const { data: urlData } = supabase.storage
-      .from(CHARACTER_IMAGES_BUCKET)
-      .getPublicUrl(filePath);
-
-    const publicUrl = urlData.publicUrl;
-    console.log(`✅ Uploaded image to Supabase Storage: ${publicUrl}`);
-    
-    return publicUrl;
-  } catch (error) {
-    console.error(`❌ Error saving image to Supabase Storage: ${error instanceof Error ? error.message : String(error)}`);
-    // Fallback to local filesystem
+  // Fallback to local filesystem (for development or if R2 fails)
+  try {
     ensureDirectoryExists();
     const localPath = path.join(CHARACTER_IMAGES_DIR, filename);
     fs.writeFileSync(localPath, buffer);
-    console.log(`💾 Fallback: Saved image to local filesystem: ${localPath}`);
+    console.log(`💾 Saved image to local filesystem (fallback): ${localPath}`);
     
     const backendUrl = process.env.BACKEND_BASE_URL || 
                        process.env.BACKEND_URL || 
                        process.env.NEXT_PUBLIC_BACKEND_URL ||
                        'http://localhost:8080';
     return `${backendUrl.replace(/\/$/, '')}/character-images/${filename}`;
+  } catch (error) {
+    console.error(`❌ Error saving image to local filesystem: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Failed to save character image: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 /**
- * Get character image URL if it exists in Supabase Storage
+ * Get character image URL if it exists in Cloudflare R2
  * @deprecated Use database lookup instead (character_image_url column)
  * Kept for backward compatibility
  */
 export async function getCharacterImageUrl(nameOrAssetId: string, useAssetId: boolean = false): Promise<string | null> {
   const sanitized = sanitizeFilename(nameOrAssetId);
   const filename = `${sanitized}.png`;
-  const filePath = `${filename}`; // Path in bucket
+  const key = `character-images/${filename}`;
 
-  try {
-    // Check if file exists in Supabase Storage
-    const { data, error } = await supabase.storage
-      .from(CHARACTER_IMAGES_BUCKET)
-      .list('', {
-        limit: 1000, // List files to check if exists
-      });
+  const s3Client = getR2Client();
+  const publicUrl = process.env.CLOUDFLARE_R2_PUBLIC_URL;
 
-    if (error) {
-      // Fallback to local filesystem check
-      ensureDirectoryExists();
-      const localPath = path.join(CHARACTER_IMAGES_DIR, filename);
-      if (fs.existsSync(localPath)) {
-        const backendUrl = process.env.BACKEND_BASE_URL || 
-                           process.env.BACKEND_URL || 
-                           process.env.NEXT_PUBLIC_BACKEND_URL ||
-                           'http://localhost:8080';
-        return `${backendUrl.replace(/\/$/, '')}/character-images/${filename}`;
+  // Check Cloudflare R2 first
+  if (s3Client && publicUrl) {
+    try {
+      const exists = await checkR2Exists(s3Client, CHARACTER_IMAGES_BUCKET, key);
+      if (exists) {
+        return `${publicUrl.replace(/\/$/, '')}/${key}`;
       }
-      return null;
+    } catch (error) {
+      console.error(`❌ Error checking Cloudflare R2: ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    // Check if file exists in the list
-    const fileExists = data?.some(file => file.name === filename);
-    
-    if (fileExists) {
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from(CHARACTER_IMAGES_BUCKET)
-        .getPublicUrl(filePath);
-      
-      return urlData.publicUrl;
-    }
-
-    // Fallback: Check local filesystem
-    ensureDirectoryExists();
-    const localPath = path.join(CHARACTER_IMAGES_DIR, filename);
-    if (fs.existsSync(localPath)) {
-      const backendUrl = process.env.BACKEND_BASE_URL || 
-                         process.env.BACKEND_URL || 
-                         process.env.NEXT_PUBLIC_BACKEND_URL ||
-                         'http://localhost:8080';
-      return `${backendUrl.replace(/\/$/, '')}/character-images/${filename}`;
-    }
-
-    return null;
-  } catch (error) {
-    console.warn(`⚠️ Error checking for image in Supabase Storage: ${error instanceof Error ? error.message : String(error)}`);
-    // Fallback to local filesystem
-    ensureDirectoryExists();
-    const localPath = path.join(CHARACTER_IMAGES_DIR, filename);
-    if (fs.existsSync(localPath)) {
-      const backendUrl = process.env.BACKEND_BASE_URL || 
-                         process.env.BACKEND_URL || 
-                         process.env.NEXT_PUBLIC_BACKEND_URL ||
-                         'http://localhost:8080';
-      return `${backendUrl.replace(/\/$/, '')}/character-images/${filename}`;
-    }
-    return null;
   }
+
+  // Fallback to local filesystem check
+  ensureDirectoryExists();
+  const localPath = path.join(CHARACTER_IMAGES_DIR, filename);
+  if (fs.existsSync(localPath)) {
+    const backendUrl = process.env.BACKEND_BASE_URL || 
+                       process.env.BACKEND_URL || 
+                       process.env.NEXT_PUBLIC_BACKEND_URL ||
+                       'http://localhost:8080';
+    return `${backendUrl.replace(/\/$/, '')}/character-images/${filename}`;
+  }
+  
+  return null;
 }
 
 /**

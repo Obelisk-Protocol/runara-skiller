@@ -10,7 +10,8 @@ import { saveCharacterImage, getCharacterImageUrl } from '../services/image-stor
 import { loadCharacterImageData } from '../services/character-data-loader';
 import { updateCharacterCNFT } from '../services/cnft';
 import { NftColumns } from '../services/database';
-import { supabase } from '../config/database';
+// Supabase removed - use PostgreSQL via pg-helper
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper';
 
 const router = Router();
 
@@ -124,10 +125,10 @@ router.post('/:assetId/generate-image', async (req: any, res: any) => {
       const row = await NftColumns.get(assetId);
       if (row) {
         // Try to update using Supabase, but handle gracefully if column doesn't exist
-        const { error: updateError } = await supabase
-          .from('nfts')
-          .update({ character_image_url: imageUrl })
-          .eq('asset_id', assetId);
+        const { error: updateError } = await pgQuery(
+          'UPDATE nfts SET character_image_url = $1 WHERE asset_id = $2',
+          [imageUrl, assetId]
+        );
         
         if (updateError) {
           // Check if error is because column doesn't exist
@@ -146,7 +147,7 @@ router.post('/:assetId/generate-image', async (req: any, res: any) => {
     }
 
     // Update NFT metadata if requested
-    let nftUpdateResult = null;
+    let nftUpdateResult: { success: boolean; signature?: string; error?: string } | null = null;
     if (updateNFT) {
       try {
         console.log(`🔄 Updating NFT metadata with new image...`);

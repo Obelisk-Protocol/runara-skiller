@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { supabase } from '../config/database'
+// Supabase removed - use PostgreSQL via pg-helper
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper'
 import { ItemService } from '../services/item'
 
 const router = Router()
@@ -26,7 +27,11 @@ const CreateItemSchema = z.object({
   max_stack_size: z.number().int().positive().default(1),
   min_floor_level: z.number().int().positive().default(1),
   mint_cost_cobx: z.number().int().min(0).default(0),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  // Placeable item fields
+  is_placeable: z.boolean().default(false).optional(),
+  placeable_category: z.enum(['building', 'crafting', 'decoration', 'storage', 'furniture', 'structure']).optional().nullable(),
+  placement_metadata: z.record(z.any()).optional().nullable()
 })
 
 const UpdateItemSchema = CreateItemSchema.partial().extend({
@@ -43,12 +48,14 @@ const SpriteLinkSchema = z.object({
 // GET /api/items - List all items with optional filters
 router.get('/', async (req: any, res: any) => {
   try {
-    const { type, rarity, search, is_active } = req.query
+    const { type, rarity, search, is_active, is_placeable, placeable_category } = req.query
     
     const filters: any = {}
     if (type) filters.item_type = type
     if (rarity) filters.rarity = rarity
     if (is_active !== undefined) filters.is_active = is_active === 'true'
+    if (is_placeable !== undefined) filters.is_placeable = is_placeable === 'true'
+    if (placeable_category) filters.placeable_category = placeable_category
     
     const items = await ItemService.getItemDefinitions({
       filters,

@@ -1,4 +1,5 @@
-import { supabase } from '../config/database'
+// Supabase removed - using PostgreSQL directly
+import { pgQuery, pgQuerySingle } from '../utils/pg-helper'
 import { ItemService, ItemDefinition } from './item'
 
 export interface PlayerItem {
@@ -54,32 +55,93 @@ export class PlayerItemService {
     
     // Check if player already has this item (for stackable items)
     if (itemDef.max_stack_size > 1) {
-      const existing = await this.getPlayerItem(playerId, itemId)
-      if (existing) {
-        const currentQuantity = existing.quantity
+      // Get ALL stacks of this item (not aggregated)
+      const { data: existingStacks, error: stacksError } = await pgQuery(
+        'SELECT * FROM player_items WHERE player_id = $1 AND item_definition_id = $2 ORDER BY minted_at DESC',
+        [playerId, itemId]
+      )
+      
+      if (stacksError) {
+        console.error('❌ Error fetching existing stacks:', stacksError)
+      }
+      
+      if (existingStacks && existingStacks.length > 0) {
         const maxStack = itemDef.max_stack_size
-        const totalAfterAdd = currentQuantity + quantity
         
-        if (totalAfterAdd <= maxStack) {
-          // Fits in existing stack
-          return await this.updateItemQuantity(playerId, itemId, quantity)
-        } else {
-          // Overflow - fill existing stack and create new one(s)
-          const remainingInStack = maxStack - currentQuantity
-          await this.updateItemQuantity(playerId, itemId, remainingInStack)
+        // Find stack with most room (skip if all are full)
+        let targetStack = existingStacks.find((stack: any) => {
+          const stackQty = stack.quantity || 0
+          return stackQty < maxStack
+        })
+        
+        if (targetStack) {
+          // Found a stack with room - add to it
+          const targetStackId = targetStack.id
+          const targetStackQuantity = targetStack.quantity || 0
+          const spaceAvailable = maxStack - targetStackQuantity
+          const quantityToAdd = Math.min(quantity, spaceAvailable)
           
-          // Recursively award remaining quantity (will create new stack)
-          return await this.awardItemToPlayer({
-            playerId,
-            itemId,
-            quantity: quantity - remainingInStack,
-            source,
-            interactionId,
-            skillName
-          })
+          if (quantityToAdd > 0) {
+            // Add to existing stack by updating that specific stack's quantity
+            const { data: updatedStacks, error: updateError } = await pgQuery(
+              'UPDATE player_items SET quantity = $1 WHERE id = $2 RETURNING *',
+              [targetStackQuantity + quantityToAdd, targetStackId]
+            )
+            
+            if (updateError) {
+              console.error('❌ Error updating stack quantity:', updateError)
+              throw new Error(`Failed to update stack: ${updateError.message}`)
+            }
+            
+            const updatedStack = updatedStacks && updatedStacks.length > 0 ? updatedStacks[0] : null
+            
+            if (!updatedStack) {
+              throw new Error('Failed to update stack: no data returned')
+            }
+            
+            // If no remaining quantity, return the updated stack
+            if (quantityToAdd >= quantity) {
+              return updatedStack as PlayerItem
+            }
+            
+            // If there's remaining quantity, continue to create new stack(s)
+            const remainingQuantity = quantity - quantityToAdd
+            if (remainingQuantity > 0) {
+              // Recursively award remaining quantity (will create new stack)
+              return await this.awardItemToPlayer({
+                playerId,
+                itemId,
+                quantity: remainingQuantity,
+                source,
+                interactionId,
+                skillName
+              })
+            }
+          }
         }
+        // If no stack has room (or all stacks are full), fall through to create new stack below
       }
     }
+    
+    // Find empty slot for new item (0-29 for inventory, NULL for overflow)
+    const { data: slots } = await pgQuery(
+      'SELECT slot_position FROM player_items WHERE player_id = $1 AND slot_position IS NOT NULL',
+      [playerId]
+    )
+    
+    const usedSlots = new Set((slots || []).map((s: any) => s.slot_position))
+    let emptySlot: number | null = null
+    
+    // Find first empty slot (0-29)
+    for (let i = 0; i < 30; i++) {
+      if (!usedSlots.has(i)) {
+        emptySlot = i
+        break
+      }
+    }
+    
+    // If no empty slot, item goes to overflow (slot_position = NULL)
+    // This allows players to have more than 30 items, but only 30 visible in inventory
     
     // Generate unique CNFT address (placeholder - in production this would mint actual CNFT)
     // For now, use a deterministic ID based on player + item + timestamp
@@ -104,24 +166,52 @@ export class PlayerItemService {
       quantity,
       mint_cost: itemDef.mint_cost_cobx,
       is_stacked: itemDef.max_stack_size > 1,
-      acquisition_source: source
+      acquisition_source: source,
+      slot_position: emptySlot // CRITICAL: Set slot position (or NULL for overflow)
     }
     
-    const { data, error } = await supabase
-      .from('player_items')
-      .insert({
-        ...playerItem,
-        minted_at: new Date().toISOString()
-      })
-      .select()
-      .single()
+    const { data, error } = await pgQuery(
+      `INSERT INTO player_items (
+        player_id, item_definition_id, cnft_address, mint_signature, metadata_uri,
+        rarity, item_type, current_durability, found_in_dungeon, found_on_floor,
+        last_traded_at, traded_to_player, withdrawn_to_wallet, withdrawn_at,
+        quantity, mint_cost, is_stacked, acquisition_source, slot_position, minted_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      RETURNING *`,
+      [
+        playerItem.player_id,
+        playerItem.item_definition_id,
+        playerItem.cnft_address,
+        playerItem.mint_signature,
+        playerItem.metadata_uri,
+        playerItem.rarity,
+        playerItem.item_type,
+        playerItem.current_durability,
+        playerItem.found_in_dungeon,
+        playerItem.found_on_floor,
+        playerItem.last_traded_at,
+        playerItem.traded_to_player,
+        playerItem.withdrawn_to_wallet,
+        playerItem.withdrawn_at,
+        playerItem.quantity,
+        playerItem.mint_cost,
+        playerItem.is_stacked,
+        playerItem.acquisition_source,
+        playerItem.slot_position,
+        new Date().toISOString()
+      ]
+    )
     
     if (error) {
       console.error('❌ Error awarding item to player:', error)
       throw new Error(`Failed to award item: ${error.message}`)
     }
     
-    return data as PlayerItem
+    if (!data || data.length === 0) {
+      throw new Error('Failed to award item: no data returned')
+    }
+    
+    return data[0] as PlayerItem
   }
   
   /**
@@ -129,12 +219,10 @@ export class PlayerItemService {
    * OPTIMIZED: Order by slot_position (inventory slots) first, then minted_at for overflow
    */
   static async getPlayerItems(playerId: string): Promise<PlayerItem[]> {
-    const { data, error } = await supabase
-      .from('player_items')
-      .select('*')
-      .eq('player_id', playerId)
-      .order('slot_position', { ascending: true, nullsFirst: false })
-      .order('minted_at', { ascending: false })
+    const { data, error } = await pgQuery(
+      'SELECT * FROM player_items WHERE player_id = $1 ORDER BY slot_position ASC NULLS LAST, minted_at DESC',
+      [playerId]
+    )
     
     if (error) {
       console.error('❌ Error fetching player items:', error)
@@ -146,63 +234,174 @@ export class PlayerItemService {
   
   /**
    * Get specific item for player
+   * NOTE: Returns aggregated quantity across all stacks of the same item
+   * If player has multiple stacks, returns the first one with summed quantity
    */
   static async getPlayerItem(playerId: string, itemId: string): Promise<PlayerItem | null> {
-    const { data, error } = await supabase
-      .from('player_items')
-      .select('*')
-      .eq('player_id', playerId)
-      .eq('item_definition_id', itemId)
-      .single()
+    const { data, error } = await pgQuery(
+      'SELECT * FROM player_items WHERE player_id = $1 AND item_definition_id = $2 ORDER BY minted_at DESC',
+      [playerId, itemId]
+    )
     
     if (error) {
-      if (error.code === 'PGRST116') {
-        return null
-      }
       console.error('❌ Error fetching player item:', error)
       throw new Error(`Failed to fetch player item: ${error.message}`)
     }
     
-    return data as PlayerItem
+    if (!data || data.length === 0) {
+      return null
+    }
+    
+    // If only one stack, return it
+    if (data.length === 1) {
+      return data[0] as PlayerItem
+    }
+    
+    // If multiple stacks, sum quantities and return first stack with total quantity
+    const totalQuantity = data.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
+    const firstItem = data[0] as PlayerItem
+    
+    // Return first item but with aggregated quantity
+    return {
+      ...firstItem,
+      quantity: totalQuantity
+    }
   }
   
   /**
    * Update item quantity (for stackable items)
+   * NOTE: This method works with a SPECIFIC stack, not all stacks
+   * If you need to update a specific stack, use updateItemQuantityById instead
+   * This method finds the first non-full stack and updates it, or creates a new stack if needed
    */
   static async updateItemQuantity(playerId: string, itemId: string, delta: number): Promise<PlayerItem> {
-    const existing = await this.getPlayerItem(playerId, itemId)
-    if (!existing) {
-      throw new Error(`Player does not have item "${itemId}"`)
+    // Get ALL stacks (not aggregated) to work with individual stacks
+    const { data: existingStacks, error: stacksError } = await pgQuery(
+      'SELECT * FROM player_items WHERE player_id = $1 AND item_definition_id = $2 ORDER BY minted_at DESC',
+      [playerId, itemId]
+    )
+    
+    if (stacksError) {
+      console.error('❌ Error fetching stacks:', stacksError)
+      throw new Error(`Failed to fetch item stacks: ${stacksError.message}`)
     }
     
-    const newQuantity = existing.quantity + delta
-    if (newQuantity <= 0) {
-      // Remove item if quantity reaches 0 or below
-      await this.removeItem(playerId, itemId, existing.quantity)
-      // Throw error to indicate the operation resulted in removal
-      throw new Error(`Item quantity cannot be negative or zero. Item removed from inventory.`)
+    if (!existingStacks || existingStacks.length === 0) {
+      throw new Error(`Player does not have item "${itemId}"`)
     }
     
     // Get item definition to check max stack size
     const itemDef = await ItemService.getItemDefinition(itemId)
-    if (itemDef && newQuantity > itemDef.max_stack_size) {
-      throw new Error(`Quantity exceeds max stack size of ${itemDef.max_stack_size}`)
+    if (!itemDef) {
+      throw new Error(`Item definition "${itemId}" not found`)
     }
     
-    const { data, error } = await supabase
-      .from('player_items')
-      .update({ quantity: newQuantity })
-      .eq('player_id', playerId)
-      .eq('item_definition_id', itemId)
-      .select()
-      .single()
+    const maxStack = itemDef.max_stack_size
     
-    if (error) {
-      console.error('❌ Error updating item quantity:', error)
-      throw new Error(`Failed to update item quantity: ${error.message}`)
+    // If adding (delta > 0), find a stack with room
+    if (delta > 0) {
+      let targetStack = existingStacks.find((stack: any) => {
+        const stackQty = stack.quantity || 0
+        return stackQty < maxStack
+      })
+      
+      if (targetStack) {
+        // Found a stack with room - add to it
+        const targetStackId = targetStack.id
+        const targetStackQuantity = targetStack.quantity || 0
+        const spaceAvailable = maxStack - targetStackQuantity
+        const quantityToAdd = Math.min(delta, spaceAvailable)
+        const newQuantity = targetStackQuantity + quantityToAdd
+        
+        if (newQuantity > maxStack) {
+          throw new Error(`Quantity exceeds max stack size of ${maxStack}`)
+        }
+        
+        const { data: updatedStacks, error: updateError } = await pgQuery(
+          'UPDATE player_items SET quantity = $1 WHERE id = $2 RETURNING *',
+          [newQuantity, targetStackId]
+        )
+        
+        if (updateError) {
+          console.error('❌ Error updating stack quantity:', updateError)
+          throw new Error(`Failed to update stack: ${updateError.message}`)
+        }
+        
+        if (!updatedStacks || updatedStacks.length === 0) {
+          throw new Error('Failed to update stack: no data returned')
+        }
+        
+        const updatedStack = updatedStacks[0]
+        
+        // If there's remaining quantity, recursively add to new stack(s)
+        const remainingDelta = delta - quantityToAdd
+        if (remainingDelta > 0) {
+          return await this.updateItemQuantity(playerId, itemId, remainingDelta)
+        }
+        
+        return updatedStack as PlayerItem
+      } else {
+        // All stacks are full - would need to create new stack, but updateItemQuantity doesn't do that
+        // This should be handled by awardItemToPlayer instead
+        throw new Error(`All stacks are full (max ${maxStack}). Use awardItemToPlayer to create new stacks.`)
+      }
+    } else {
+      // If removing (delta < 0), remove from stacks in reverse order (newest first)
+      let remainingToRemove = Math.abs(delta)
+      
+      for (const stack of existingStacks) {
+        const stackQuantity = stack.quantity || 0
+        const quantityToRemove = Math.min(remainingToRemove, stackQuantity)
+        
+        if (quantityToRemove > 0) {
+          const newQuantity = stackQuantity - quantityToRemove
+          
+          if (newQuantity <= 0) {
+            // Delete this stack
+            await pgQuery(
+              'DELETE FROM player_items WHERE id = $1',
+              [stack.id]
+            )
+          } else {
+            // Update stack
+            await pgQuery(
+              'UPDATE player_items SET quantity = $1 WHERE id = $2',
+              [newQuantity, stack.id]
+            )
+          }
+          
+          remainingToRemove -= quantityToRemove
+          
+          if (remainingToRemove <= 0) {
+            // Return the last updated stack (or first remaining if we deleted it)
+            if (newQuantity > 0) {
+              const { data: updatedStacks } = await pgQuery(
+                'SELECT * FROM player_items WHERE id = $1',
+                [stack.id]
+              )
+              if (!updatedStacks || updatedStacks.length === 0) {
+                throw new Error('Failed to fetch updated stack')
+              }
+              return updatedStacks[0] as PlayerItem
+            } else {
+              // Return first remaining stack if any
+              const remainingStacks = existingStacks.filter((s: any) => s.id !== stack.id && s.quantity > 0)
+              if (remainingStacks.length > 0) {
+                return remainingStacks[0] as PlayerItem
+              }
+              throw new Error(`Item "${itemId}" removed from inventory`)
+            }
+          }
+        }
+      }
+      
+      if (remainingToRemove > 0) {
+        throw new Error(`Cannot remove ${Math.abs(delta)} items - player only has ${existingStacks.reduce((sum: number, s: PlayerItem) => sum + (s.quantity || 0), 0)}`)
+      }
+      
+      // Should not reach here, but return first stack as fallback
+      return existingStacks[0] as PlayerItem
     }
-    
-    return data as PlayerItem
   }
   
   /**
@@ -216,11 +415,10 @@ export class PlayerItemService {
     
     if (quantity >= existing.quantity) {
       // Remove entire entry
-      const { error } = await supabase
-        .from('player_items')
-        .delete()
-        .eq('player_id', playerId)
-        .eq('item_definition_id', itemId)
+      const { error } = await pgQuery(
+        'DELETE FROM player_items WHERE player_id = $1 AND item_definition_id = $2',
+        [playerId, itemId]
+      )
       
       if (error) {
         console.error('❌ Error removing item:', error)
@@ -236,66 +434,52 @@ export class PlayerItemService {
   
   /**
    * Get player items with item definitions joined
-   * OPTIMIZED: Uses Supabase foreign key join to fetch in one query (faster than two queries)
+   * OPTIMIZED: Parallel queries - fetch items first, then only needed definitions
    */
   static async getPlayerItemsWithDefinitions(playerId: string): Promise<Array<PlayerItem & { definition: ItemDefinition | null }>> {
-    // Use imported supabase instance
-    
-    // OPTIMIZED: Use Supabase foreign key join (item_definition_id -> item_definitions.item_id)
-    // This fetches items + definitions in a single database query
-    // Supabase automatically detects foreign key relationships
-    const { data: items, error: itemsError } = await supabase
-      .from('player_items')
-      .select(`
-        *,
-        item_definitions (*)
-      `)
-      .eq('player_id', playerId)
-      .order('slot_position', { ascending: true, nullsFirst: false })
-      .order('minted_at', { ascending: false })
+    // Step 1: Fetch player items (fast - indexed query)
+    const { data: itemsData, error: itemsError } = await pgQuery(
+      'SELECT * FROM player_items WHERE player_id = $1 ORDER BY slot_position ASC NULLS LAST, minted_at DESC',
+      [playerId]
+    )
     
     if (itemsError) {
-      // If join fails, fallback to two-query approach
-      console.warn('⚠️ Join query failed, falling back to two queries:', itemsError.message)
-      
-      // Fallback: fetch items first
-      const { data: itemsData, error: itemsErr } = await supabase
-        .from('player_items')
-        .select('*')
-        .eq('player_id', playerId)
-        .order('slot_position', { ascending: true, nullsFirst: false })
-        .order('minted_at', { ascending: false })
-      
-      if (itemsErr || !itemsData || itemsData.length === 0) {
-        return []
-      }
-      
-      // Fetch definitions
-      const itemDefinitionIds = Array.from(new Set(itemsData.map((item: any) => item.item_definition_id)))
-      const { data: definitions } = await supabase
-        .from('item_definitions')
-        .select('*')
-        .in('item_id', itemDefinitionIds)
-      
-      const definitionMap = new Map((definitions || []).map((def: any) => [def.item_id, def]))
-      
-      return itemsData.map((item: any) => ({
-        ...item,
-        definition: definitionMap.get(item.item_definition_id) || null
-      })) as Array<PlayerItem & { definition: any }>
-    }
-    
-    if (!items || items.length === 0) {
+      console.error('❌ Error fetching player items:', itemsError)
       return []
     }
     
-    // Supabase returns definitions as nested array (foreign key relationship)
-    // Extract and flatten the structure
-    return items.map((item: any) => ({
+    if (!itemsData || itemsData.length === 0) {
+      return []
+    }
+    
+    // Step 2: Extract unique item definition IDs (usually only 1-5 unique items per player)
+    const itemDefinitionIds = Array.from(new Set(itemsData.map((item: any) => item.item_definition_id)))
+    
+    // Step 3: Fetch only the definitions we need (parallel with items query would be ideal, but we need IDs first)
+    // OPTIMIZED: Use IN query - very fast with index on item_id
+    const placeholders = itemDefinitionIds.map((_, i) => `$${i + 1}`).join(', ');
+    const { data: definitions, error: definitionsError } = await pgQuery(
+      `SELECT * FROM item_definitions WHERE item_id IN (${placeholders})`,
+      itemDefinitionIds
+    )
+    
+    if (definitionsError) {
+      console.warn('⚠️ Error fetching item definitions:', definitionsError)
+      // Continue without definitions rather than failing
+    }
+    
+    // Build definition map (O(1) lookup)
+    const definitionMap = new Map<string, ItemDefinition>()
+    if (definitions) {
+      definitions.forEach((def: any) => {
+        definitionMap.set(def.item_id, def)
+      })
+    }
+    
+    // Combine items with definitions (O(n) where n = number of items)
+    return itemsData.map((item: any) => ({
       ...item,
-      definition: (item.item_definitions && Array.isArray(item.item_definitions) && item.item_definitions.length > 0)
-        ? item.item_definitions[0]  // Foreign key join returns array, take first
-        : null
+      definition: definitionMap.get(item.item_definition_id) || null
     })) as Array<PlayerItem & { definition: any }>
   }
 }

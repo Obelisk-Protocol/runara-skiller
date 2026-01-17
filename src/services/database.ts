@@ -1,6 +1,6 @@
-import { supabase } from '../config/database';
 import { Client as PgClient } from 'pg'
 import { PlayerSkillExperience, ExperienceLog, CharacterStats } from '../types/character';
+import { pgQuerySingle, pgQuery } from '../utils/pg-helper';
 
 // [DEPRECATED] CharacterDatabase removed. Characters are now represented by `nfts` table (per-skill columns).
 
@@ -10,22 +10,21 @@ export class SkillDatabase {
   // Get player skill experience
   static async getPlayerSkillExperience(playerPda: string): Promise<PlayerSkillExperience | null> {
     try {
-      const { data, error } = await supabase
-        .from('player_skill_experience')
-        .select('*')
-        .eq('player_pda', playerPda)
-        .single();
+      const result = await pgQuerySingle<PlayerSkillExperience>(
+        'SELECT * FROM player_skill_experience WHERE player_pda = $1',
+        [playerPda]
+      );
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // No rows returned - create default entry
+      if (result.error) {
+        // No rows returned - create default entry
+        if (result.error.message === 'No rows returned') {
           return await this.createDefaultSkillExperience(playerPda);
         }
-        console.error('❌ Error fetching skill experience:', error);
+        console.error('❌ Error fetching skill experience:', result.error);
         return null;
       }
 
-      return data;
+      return result.data;
     } catch (error) {
       console.error('❌ Database error fetching skill experience:', error);
       return null;
@@ -46,19 +45,27 @@ export class SkillDatabase {
         pending_onchain_update: false
       };
 
-      const { data, error } = await supabase
-        .from('player_skill_experience')
-        .insert([defaultData])
-        .select()
-        .single();
+      const result = await pgQuerySingle<PlayerSkillExperience>(
+        `INSERT INTO player_skill_experience (player_pda, magic_xp, crafting_xp, magic_level, crafting_level, pending_onchain_update)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [
+          playerPda,
+          defaultData.magic_xp,
+          defaultData.crafting_xp,
+          defaultData.magic_level,
+          defaultData.crafting_level,
+          defaultData.pending_onchain_update
+        ]
+      );
 
-      if (error) {
-        console.error('❌ Error creating default skill experience:', error);
+      if (result.error) {
+        console.error('❌ Error creating default skill experience:', result.error);
         return null;
       }
 
       console.log('✅ Created default skill experience for:', playerPda);
-      return data;
+      return result.data;
     } catch (error) {
       console.error('❌ Database error creating skill experience:', error);
       return null;
@@ -96,10 +103,13 @@ export class SkillDatabase {
         updated_at: new Date().toISOString()
       };
 
-      const { error: updateError } = await supabase
-        .from('player_skill_experience')
-        .update(updateData)
-        .eq('player_pda', playerPda);
+      const updateKeys = Object.keys(updateData);
+      const updateValues = Object.values(updateData);
+      const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+      const { error: updateError } = await pgQuery(
+        `UPDATE player_skill_experience SET ${setClause} WHERE player_pda = $${updateKeys.length + 1}`,
+        [...updateValues, playerPda]
+      );
 
       if (updateError) {
         console.error('❌ Error updating skill experience:', updateError);
@@ -155,9 +165,14 @@ export class SkillDatabase {
         logData.session_id = validSessionId;
       }
 
-      const { error } = await supabase
-        .from('experience_logs')
-        .insert([logData]);
+      const insertKeys = Object.keys(logData);
+      const insertValues = Object.values(logData);
+      const columns = insertKeys.join(', ');
+      const placeholders = insertKeys.map((_, i) => `$${i + 1}`).join(', ');
+      const { error } = await pgQuery(
+        `INSERT INTO experience_logs (${columns}) VALUES (${placeholders})`,
+        insertValues
+      );
 
       if (error) {
         console.error('❌ Error logging experience gain:', error);
@@ -197,13 +212,10 @@ export class SkillDatabase {
   // Mark skills as synced to blockchain
   static async markSkillsSynced(playerPda: string): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('player_skill_experience')
-        .update({
-          pending_onchain_update: false,
-          last_onchain_sync: new Date().toISOString()
-        })
-        .eq('player_pda', playerPda);
+      const { error } = await pgQuery(
+        'UPDATE player_skill_experience SET pending_onchain_update = $1, last_onchain_sync = $2 WHERE player_pda = $3',
+        [false, new Date().toISOString(), playerPda]
+      );
 
       if (error) {
         console.error('❌ Error marking skills as synced:', error);
@@ -221,11 +233,12 @@ export class SkillDatabase {
   // Get players with pending sync
   static async getPlayersWithPendingSync(): Promise<PlayerSkillExperience[]> {
     try {
-      const { data, error } = await supabase
-        .from('player_skill_experience')
-        .select('*')
-        .eq('pending_onchain_update', true)
-        .order('updated_at', { ascending: true });
+      const result = await pgQuery<PlayerSkillExperience>(
+        'SELECT * FROM player_skill_experience WHERE pending_onchain_update = $1 ORDER BY updated_at ASC',
+        [true]
+      );
+      const data = result.data;
+      const error = result.error;
 
       if (error) {
         console.error('❌ Error fetching players with pending sync:', error);
@@ -242,10 +255,11 @@ export class SkillDatabase {
   // Action-based skill training methods
   static async getActionSkillMappings(): Promise<Array<{action: string, skill: string, description: string}>> {
     try {
-      const { data, error } = await supabase
-        .from('action_skills')
-        .select('action, skill, description')
-        .order('skill, action');
+      const result = await pgQuery<{action: string, skill: string, description: string}>(
+        'SELECT action, skill, description FROM action_skills ORDER BY skill, action'
+      );
+      const data = result.data;
+      const error = result.error;
 
       if (error) {
         console.error('❌ Error fetching action-skill mappings:', error);
@@ -261,14 +275,15 @@ export class SkillDatabase {
 
   static async getSkillForAction(action: string): Promise<{skill: string, description: string} | null> {
     try {
-      const { data, error } = await supabase
-        .from('action_skills')
-        .select('skill, description')
-        .eq('action', action)
-        .single();
+      const result = await pgQuerySingle<{skill: string, description: string}>(
+        'SELECT skill, description FROM action_skills WHERE action = $1',
+        [action]
+      );
+      const data = result.data;
+      const error = result.error;
 
       if (error) {
-        if (error.code === 'PGRST116') {
+        if ((error as any).code === 'PGRST116') {
           return null; // Action not found
         }
         console.error('❌ Error fetching skill for action:', error);
@@ -293,18 +308,24 @@ export class SkillDatabase {
     additionalData?: any;
   }): Promise<void> {
     try {
-      const { error } = await supabase
-        .from('skill_training_logs')
-        .insert({
-          asset_id: params.assetId,
-          action: params.action,
-          skill: params.skill,
-          exp_gained: params.expGained,
-          player_pda: params.playerPDA,
-          session_id: params.sessionId,
-          game_mode: params.gameMode,
-          additional_data: params.additionalData
-        });
+      const insertData = {
+        asset_id: params.assetId,
+        action: params.action,
+        skill: params.skill,
+        exp_gained: params.expGained,
+        player_pda: params.playerPDA,
+        session_id: params.sessionId,
+        game_mode: params.gameMode,
+        additional_data: params.additionalData
+      };
+      const insertKeys = Object.keys(insertData).filter(k => insertData[k as keyof typeof insertData] !== undefined);
+      const insertValues = insertKeys.map(k => insertData[k as keyof typeof insertData]);
+      const columns = insertKeys.join(', ');
+      const placeholders = insertKeys.map((_, i) => `$${i + 1}`).join(', ');
+      const { error } = await pgQuery(
+        `INSERT INTO skill_training_logs (${columns}) VALUES (${placeholders})`,
+        insertValues
+      );
 
       if (error) {
         console.error('❌ Error logging skill training:', error);
@@ -325,12 +346,12 @@ export class SkillDatabase {
     additional_data: any;
   }>> {
     try {
-      const { data, error } = await supabase
-        .from('skill_training_logs')
-        .select('id, action, skill, exp_gained, created_at, additional_data')
-        .eq('asset_id', assetId)
-        .order('created_at', { ascending: false })
-        .range(options.offset, options.offset + options.limit - 1);
+      const result = await pgQuery<any>(
+        'SELECT id, action, skill, exp_gained, created_at, additional_data FROM skill_training_logs WHERE asset_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+        [assetId, options.limit, options.offset]
+      );
+      const data = result.data;
+      const error = result.error;
 
       if (error) {
         console.error('❌ Error fetching skill training history:', error);
@@ -385,11 +406,12 @@ export interface NftRow {
 export class NftState {
   static async get(assetId: string): Promise<NftRow | null> {
     try {
-      const { data, error } = await supabase
-        .from('nfts')
-        .select('*')
-        .eq('asset_id', assetId)
-        .single();
+      const result = await pgQuerySingle<NftRow>(
+        'SELECT * FROM nfts WHERE asset_id = $1',
+        [assetId]
+      );
+      const data = result.data;
+      const error = result.error;
       if (error) {
         if ((error as any).code === 'PGRST116') return null;
         console.error('❌ NFT get error:', error);
@@ -425,9 +447,15 @@ export class NftState {
         updated_at: new Date().toISOString(),
       } as any;
 
-      const { error } = await supabase
-        .from('nfts')
-        .upsert(row, { onConflict: 'asset_id' });
+      const rowKeys = Object.keys(row).filter(k => row[k as keyof typeof row] !== undefined);
+      const rowValues = rowKeys.map(k => row[k as keyof typeof row]);
+      const setClause = rowKeys.map((key, i) => `${key} = EXCLUDED.${key}`).join(', ');
+      const insertClause = rowKeys.join(', ');
+      const placeholders = rowKeys.map((_, i) => `$${i + 1}`).join(', ');
+      const { error } = await pgQuery(
+        `INSERT INTO nfts (${insertClause}) VALUES (${placeholders}) ON CONFLICT (asset_id) DO UPDATE SET ${setClause}`,
+        rowValues
+      );
       if (error) {
         console.error('❌ NFT upsert error:', error);
         return false;
@@ -460,11 +488,13 @@ export interface NftColumnsRow {
 
 export class NftColumns {
   private static getPgConn(): string | null {
-    // Force REST path unless explicitly disabled
+    // Prioritize Railway PostgreSQL connection (DATABASE_URL)
+    const dbUrl = process.env.DATABASE_URL || process.env.SKILLER_DATABASE_URL || null
+    if (dbUrl) return dbUrl
+    // Fallback to Supabase DB URL if Railway not configured (for backward compatibility during migration)
     if (process.env.FORCE_SUPABASE_REST !== 'false') return null
     const supa = process.env.SUPABASE_DB_URL || null
     if (supa) return supa
-    if (process.env.ALLOW_DATABASE_URL_FALLBACK === 'true') return process.env.DATABASE_URL || null
     return null
   }
   
@@ -487,14 +517,16 @@ export class NftColumns {
           return row as NftColumnsRow | null
         } catch (pgErr) {
           console.error('❌ [NftColumns.get] PG error:', pgErr)
-          // fallthrough to supabase
+          // Fallback to direct PostgreSQL query
         }
       }
-      const { data, error } = await supabase
-        .from('nfts')
-        .select('*')
-        .eq('asset_id', assetId)
-        .single()
+      // Use pg-helper as fallback
+      const result = await pgQuerySingle<NftColumnsRow>(
+        'SELECT * FROM nfts WHERE asset_id = $1',
+        [assetId]
+      );
+      const data = result.data;
+      const error = result.error;
       if (error) {
         if ((error as any).code === 'PGRST116') return null
         console.error('❌ NFT columns get error:', error)
@@ -707,19 +739,26 @@ export class NftColumns {
         return saved as NftColumnsRow | null
       } catch (pgErr) {
         console.error('❌ [NftColumns.upsertMergeMaxFromStats:PG] error:', pgErr)
-        // fall back to supabase
+        // Fallback removed - Supabase migration complete
+        console.error('❌ [NftColumns.upsertMergeMaxFromStats] PostgreSQL upsert failed');
+        return null;
       }
     }
-    const { data, error } = await supabase
-      .from('nfts')
-      .upsert(row, { onConflict: 'asset_id' })
-      .select('*')
-      .single()
-    if (error) {
-      console.error('❌ [NftColumns.upsertMergeMaxFromStats] supabase error:', error)
-      return null
+    // Use pg-helper as fallback
+    const rowKeys = Object.keys(row).filter(k => row[k as keyof typeof row] !== undefined);
+    const rowValues = rowKeys.map(k => row[k as keyof typeof row]);
+    const setClause = rowKeys.map((key, i) => `${key} = EXCLUDED.${key}`).join(', ');
+    const insertClause = rowKeys.join(', ');
+    const placeholders = rowKeys.map((_, i) => `$${i + 1}`).join(', ');
+    const result = await pgQuerySingle<NftColumnsRow>(
+      `INSERT INTO nfts (${insertClause}) VALUES (${placeholders}) ON CONFLICT (asset_id) DO UPDATE SET ${setClause} RETURNING *`,
+      rowValues
+    );
+    if (result.error) {
+      console.error('❌ [NftColumns.upsertMergeMaxFromStats] PostgreSQL error:', result.error);
+      return null;
     }
-    return data as NftColumnsRow
+    return result.data;
   }
 
   static async upsertFromStats(
@@ -730,9 +769,9 @@ export class NftColumns {
     lastSig?: string | null
   ): Promise<NftColumnsRow | null> {
     try {
-      const supabaseUrl = process.env.SUPABASE_URL || ''
-      const dbUrl = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || ''
-      const targetInfo = `supabaseUrlHost=${(() => { try { return new URL(supabaseUrl).host } catch { return supabaseUrl.slice(0, 32) } })()} pgUrlHost=${(() => { try { return new URL(dbUrl).host } catch { return dbUrl.slice(0, 32) } })()}`
+      const dbUrl = process.env.DATABASE_URL || process.env.SKILLER_DATABASE_URL || process.env.SUPABASE_DB_URL || ''
+      const dbHost = (() => { try { return new URL(dbUrl).host } catch { return dbUrl.slice(0, 32) } })()
+      const targetInfo = `pgUrlHost=${dbHost}`
       console.log(`📝 [NftColumns.upsertFromStats] assetId=${assetId} playerPda=${playerPda ?? 'null'} targetDB=(${targetInfo})`)
 
       // Prefer direct PG if configured (Railway/Postgres)
@@ -775,7 +814,9 @@ export class NftColumns {
           return saved as NftColumnsRow | null
         } catch (pgErr) {
           console.error('❌ [NftColumns.upsertFromStats:PG] error:', pgErr)
-          // fallback to supabase below
+          // Fallback removed - Supabase migration complete
+          console.error('❌ [NftColumns.upsertFromStats] PostgreSQL upsert failed');
+          return null;
         }
       }
 
@@ -791,17 +832,22 @@ export class NftColumns {
         last_update_sig: lastSig ?? null,
         updated_at: new Date().toISOString(),
       }
-      const { data, error } = await supabase
-        .from('nfts')
-        .upsert(row, { onConflict: 'asset_id' })
-        .select('*')
-        .single()
-      if (error) {
-        console.error('❌ [NftColumns.upsertFromStats] upsert error:', error)
-        return null
+      // Use pg-helper for upsert
+      const rowKeys = Object.keys(row).filter(k => row[k as keyof typeof row] !== undefined);
+      const rowValues = rowKeys.map(k => row[k as keyof typeof row]);
+      const setClause = rowKeys.map((key, i) => `${key} = EXCLUDED.${key}`).join(', ');
+      const insertClause = rowKeys.join(', ');
+      const placeholders = rowKeys.map((_, i) => `$${i + 1}`).join(', ');
+      const result = await pgQuerySingle<NftColumnsRow>(
+        `INSERT INTO nfts (${insertClause}) VALUES (${placeholders}) ON CONFLICT (asset_id) DO UPDATE SET ${setClause} RETURNING *`,
+        rowValues
+      );
+      if (result.error) {
+        console.error('❌ [NftColumns.upsertFromStats] PostgreSQL error:', result.error);
+        return null;
       }
-      console.log(`✅ [NftColumns.upsertFromStats] saved assetId=${assetId} name=${cols.name} combatLevel=${totals.combat_level} totalLevel=${totals.total_level}`)
-      return data as NftColumnsRow
+      console.log(`✅ [NftColumns.upsertFromStats] saved assetId=${assetId} name=${cols.name} combatLevel=${totals.combat_level} totalLevel=${totals.total_level}`);
+      return result.data;
     } catch (e) {
       console.error('❌ [NftColumns.upsertFromStats] exception:', e)
       return null

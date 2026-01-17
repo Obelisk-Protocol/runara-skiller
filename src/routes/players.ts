@@ -2,38 +2,17 @@ import { Router } from 'express';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { program, connection, serverKeypair, PROGRAM_ID, getCobxMint, createWeb2IdHash } from '../config/anchor';
-import { supabase } from '../config/database';
 import { createHash } from 'crypto';
 import { PlayerItemService } from '../services/player-items';
 import { z } from 'zod';
+import { pgQuerySingle, pgQuery, pgRpc } from '../utils/pg-helper';
 
 const router = Router();
 
-// Helper to authenticate user from Supabase auth header
+// Helper to authenticate user from JWT token
+// TODO: Replace with proper JWT verification from auth service
 async function authenticateUser(req: any): Promise<{ userId: string; profile: any }> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Unauthorized - missing or invalid auth header');
-  }
-
-  const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  
-  if (error || !user) {
-    throw new Error('Unauthorized - invalid token');
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
-
-  if (profileError || !profile) {
-    throw new Error('Profile not found');
-  }
-
-  return { userId: user.id, profile };
+  throw new Error('Supabase auth removed - use JWT auth verification from auth service');
 }
 
 // POST /api/players/initialize-web2 - Initialize Web2 player
@@ -109,15 +88,21 @@ router.post('/initialize-web2', async (req: any, res: any) => {
 
     console.log('Transaction successful:', tx);
 
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({
-        player_pda: playerPda.toBase58(),
-        cobx_token_account: playerCobxAccount.toBase58(),
-        pda_status: 'active', // Allowed: 'pending', 'creating', 'active', 'failed'
-        pda_created_at: new Date().toISOString(),
-      })
-      .eq('id', userId);
+    const { error: updateError } = await pgQuery(
+      `UPDATE profiles 
+       SET player_pda = $1, 
+           cobx_token_account = $2, 
+           pda_status = $3, 
+           pda_created_at = $4 
+       WHERE id = $5`,
+      [
+        playerPda.toBase58(),
+        playerCobxAccount.toBase58(),
+        'active',
+        new Date().toISOString(),
+        userId
+      ]
+    );
 
     if (updateError) {
       console.error('Error updating profile:', updateError);
@@ -192,13 +177,17 @@ router.post('/initialize-web2', async (req: any, res: any) => {
           console.log('✅ RECOVERY: cOBX Token Account already exists');
         }
         
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ 
-            player_pda: playerPda.toBase58(),
-            cobx_token_account: playerCobxAccount.toBase58(),
-          })
-          .eq('id', userId);
+        const { error: updateError } = await pgQuery(
+          `UPDATE profiles 
+           SET player_pda = $1, 
+               cobx_token_account = $2 
+           WHERE id = $3`,
+          [
+            playerPda.toBase58(),
+            playerCobxAccount.toBase58(),
+            userId
+          ]
+        );
 
         if (updateError) {
           console.error('Error updating profile during recovery:', updateError);
@@ -301,15 +290,21 @@ router.post('/initialize-web3', async (req: any, res: any) => {
     const spacetimePrivateKey = Buffer.from(Array.from({ length: 32 }, () => Math.floor(Math.random() * 256)));
     const spacetimeIdentity = createHash('sha256').update(spacetimePrivateKey).digest('hex');
 
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ 
-        player_pda: playerPda.toBase58(),
-        cobx_token_account: playerCobxAccount.toBase58(),
-        spacetime_private_key: spacetimePrivateKey.toString('hex'),
-        spacetime_identity: spacetimeIdentity,
-      })
-      .eq('id', userId);
+    const { error: updateError } = await pgQuery(
+      `UPDATE profiles 
+       SET player_pda = $1, 
+           cobx_token_account = $2, 
+           spacetime_private_key = $3, 
+           spacetime_identity = $4 
+       WHERE id = $5`,
+      [
+        playerPda.toBase58(),
+        playerCobxAccount.toBase58(),
+        spacetimePrivateKey.toString('hex'),
+        spacetimeIdentity,
+        userId
+      ]
+    );
 
     if (updateError) {
       console.error('Error updating profile:', updateError);
@@ -533,21 +528,31 @@ router.get('/:playerId/items', async (req: any, res: any) => {
       actualUserId = playerId
     } else {
       // It's a player_pda - need to look up profile
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('player_pda', playerId)
-        .single()
+      const { Client } = await import('pg');
+      const client = new Client({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
       
-      if (profileError || !profile) {
-        console.log('❌ Player not found:', { playerId, error: profileError })
-        return res.status(404).json({
-          success: false,
-          error: 'Player not found'
-        })
+      try {
+        await client.connect();
+        const result = await client.query(
+          'SELECT id FROM profiles WHERE player_pda = $1',
+          [playerId]
+        );
+        
+        if (result.rows.length === 0) {
+          console.log('❌ Player not found:', { playerId });
+          return res.status(404).json({
+            success: false,
+            error: 'Player not found'
+          });
+        }
+        
+        actualUserId = result.rows[0].id;
+      } finally {
+        await client.end();
       }
-      
-      actualUserId = profile.id
     }
     
     // Fetch items directly (no profile lookup needed for UUIDs)
@@ -608,26 +613,24 @@ router.post('/:playerId/inventory/move', async (req: any, res: any) => {
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     if (uuidPattern.test(playerId)) {
       // It's a UUID - look up by id directly
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', playerId)
-        .single()
+      const result = await pgQuerySingle<{ id: string }>(
+        'SELECT id FROM profiles WHERE id = $1',
+        [playerId]
+      )
       
-      profile = data
-      profileError = error
+      profile = result.data
+      profileError = result.error
     }
     
     // If not found as UUID, try as player_pda
     if (!profile && profileError) {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('player_pda', playerId)
-        .single()
+      const result = await pgQuerySingle<{ id: string }>(
+        'SELECT id FROM profiles WHERE player_pda = $1',
+        [playerId]
+      )
       
-      profile = data
-      profileError = error
+      profile = result.data
+      profileError = result.error
     }
     
     if (profileError || !profile) {
@@ -638,12 +641,15 @@ router.post('/:playerId/inventory/move', async (req: any, res: any) => {
     }
 
     // Use optimized database function (atomic operation, single query)
-    const { data: result, error: moveError } = await supabase.rpc('move_inventory_item', {
+    const rpcResult = await pgRpc<{ success: boolean }>('move_inventory_item', {
       p_player_id: profile.id,
       p_from_slot: from_slot,
       p_to_slot: to_slot,
       p_quantity: quantity
     })
+    
+    const result = rpcResult.data
+    const moveError = rpcResult.error
 
     if (moveError) {
       console.error('❌ [inventory/move] Database function error:', moveError)
@@ -656,7 +662,7 @@ router.post('/:playerId/inventory/move', async (req: any, res: any) => {
     if (!result || !result.success) {
       return res.status(400).json({
         success: false,
-        error: result?.error || 'Failed to move item'
+        error: 'Failed to move item'
       })
     }
 
@@ -677,6 +683,73 @@ router.post('/:playerId/inventory/move', async (req: any, res: any) => {
     return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to move item'
+    })
+  }
+})
+
+// DELETE /api/players/:playerId/inventory/clear - Clear all items from player inventory (dev/testing)
+router.delete('/:playerId/inventory/clear', async (req: any, res: any) => {
+  try {
+    const { playerId } = req.params
+
+    // playerId can be either UUID or player_pda
+    let profile: any = null
+    let profileError: any = null
+    
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (uuidPattern.test(playerId)) {
+      const { data, error } = await pgQuerySingle(
+        'SELECT id FROM profiles WHERE id = $1',
+        [playerId]
+      )
+      
+      profile = data
+      profileError = error
+    }
+    
+    if (!profile && profileError) {
+      const { data, error } = await pgQuerySingle(
+        'SELECT id FROM profiles WHERE player_pda = $1',
+        [playerId]
+      )
+      
+      profile = data
+      profileError = error
+    }
+    
+    if (profileError || !profile) {
+      return res.status(404).json({
+        success: false,
+        error: 'Player not found'
+      })
+    }
+
+    // Delete all items for this player
+    const { error: deleteError } = await pgQuery(
+      'DELETE FROM player_items WHERE player_id = $1',
+      [profile.id]
+    )
+    
+    if (deleteError) {
+      console.error('❌ Error clearing inventory:', deleteError)
+      return res.status(500).json({
+        success: false,
+        error: deleteError.message || 'Failed to clear inventory'
+      })
+    }
+
+    console.log(`✅ [inventory/clear] Cleared all items for player ${profile.id}`)
+    
+    return res.json({
+      success: true,
+      message: 'Inventory cleared successfully',
+      playerId: profile.id
+    })
+  } catch (error) {
+    console.error('❌ Clear inventory error:', error)
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to clear inventory'
     })
   }
 })
@@ -705,26 +778,24 @@ router.post('/:playerId/items/award', async (req: any, res: any) => {
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     if (uuidPattern.test(playerId)) {
       // It's a UUID - look up by id directly
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', playerId)
-        .single()
+      const result = await pgQuerySingle<{ id: string }>(
+        'SELECT id FROM profiles WHERE id = $1',
+        [playerId]
+      )
       
-      profile = data
-      profileError = error
+      profile = result.data
+      profileError = result.error
     }
     
     // If not found as UUID, try as player_pda
     if (!profile && profileError) {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('player_pda', playerId)
-        .single()
+      const result = await pgQuerySingle<{ id: string }>(
+        'SELECT id FROM profiles WHERE player_pda = $1',
+        [playerId]
+      )
       
-      profile = data
-      profileError = error
+      profile = result.data
+      profileError = result.error
     }
     
     if (profileError || !profile) {
