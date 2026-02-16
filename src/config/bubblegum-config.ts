@@ -39,12 +39,12 @@ export function getBubblegumConfig(): BubblegumConfig {
 
 // Updated collection config for PURE Bubblegum Items
 export const OBELISK_ITEM_COLLECTION_V2 = {
-  name: "Obelisk Paradox Items V2",
-  symbol: "OPI2", 
-  description: "Pure Bubblegum compressed NFT items from Obelisk Paradox",
-  image: "https://obeliskparadox.com/images/collection-cover.png",
-  external_url: "https://obeliskparadox.com",
-  family: "Obelisk Paradox",
+  name: "Runara Items V2",
+  symbol: "RUNI", 
+  description: "Pure Bubblegum compressed NFT items from Runara",
+  image: "https://runara.fun/images/collection-cover.png",
+  external_url: "https://runara.fun",
+  family: "Runara",
   category: "gaming",
   attributes: [
     { trait_type: "Collection Type", value: "Pure Bubblegum cNFTs" },

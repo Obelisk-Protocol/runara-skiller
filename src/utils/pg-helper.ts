@@ -23,9 +23,16 @@ function getDatabaseUrl(): string {
 export function getPgClient(): PgClient {
   const dbUrl = getDatabaseUrl();
   
+  // Always use SSL for Railway (they require it)
+  // Check if URL contains 'railway' or is a cloud database
+  const needsSsl = dbUrl.includes('railway') || 
+                   dbUrl.includes('amazonaws.com') || 
+                   dbUrl.includes('supabase.co') ||
+                   process.env.NODE_ENV === 'production';
+  
   return new Client({
     connectionString: dbUrl,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    ssl: needsSsl ? { rejectUnauthorized: false } : false
   });
 }
 

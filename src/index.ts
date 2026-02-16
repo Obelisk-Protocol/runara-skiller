@@ -21,9 +21,12 @@ import healthRoutes from './routes/health';
 import metadataRoutes from './routes/metadata';
 import dasRoutes from './routes/das';
 import slotRoutes from './routes/slots';
+import slotOffchainRoutes from './routes/slots-offchain';
 import cobxRoutes from './routes/cobx';
+import cobxOffchainRoutes from './routes/cobx-offchain';
 import marketplaceRoutes from './routes/marketplace';
 import playersRoutes from './routes/players';
+import playersOffchainRoutes from './routes/players-offchain';
 import itemRoutes from './routes/items';
 import playerStructureRoutes from './routes/player-structures';
 import craftingRoutes from './routes/crafting';
@@ -31,6 +34,9 @@ import authRoutes from './routes/auth';
 import profileRoutes from './routes/profiles';
 import nftRoutes from './routes/nfts';
 import characterSelectionRoutes from './routes/character-selection';
+import questRoutes from './routes/quests';
+import configRoutes from './routes/config';
+import characterCustomizationRoutes from './routes/character-customization';
 
 // Load environment variables
 dotenv.config();
@@ -88,30 +94,23 @@ const app = express();
 // Use PORT if set, otherwise default to 3000 for local development
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// Middleware
+// Middleware — order and logic restored to pre–CORS-change behavior
 app.use(helmet());
 app.use(cors({
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    // Get allowed origins from env var (comma-separated list)
-    // CRITICAL: When using credentials, we MUST return the exact origin, not '*'
-    const allowedOrigins = process.env.CORS_ORIGIN 
-      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-      : ['http://localhost:3000', 'http://localhost:3001', 'https://obeliskparadox.com'];
-    
-    // For development: always allow localhost origins (needed for credentials)
+    const allowedOrigins = process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+      : ['http://localhost:3000', 'http://localhost:3001', 'https://runara.fun', 'https://www.runara.fun'];
     if (origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:')) {
       return callback(null, true);
     }
-    
-    // Check if origin is in allowed list
+    if (origin.includes('.pages.dev')) {
+      return callback(null, true);
+    }
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      // For development, allow all origins (but credentials may fail)
-      // In production, only allow specific origins
       callback(null, process.env.NODE_ENV === 'production' ? false : true);
     }
   },
@@ -165,18 +164,23 @@ app.use('/api/metadata', metadataRoutes);
 app.use('/api/player-metadata', metadataRoutes);
 app.use('/api/das', dasRoutes);
 app.use('/api/slots', slotRoutes);
-// Route alias for Unity compatibility
-app.use('/api/character-cnft-slots', slotRoutes);
+app.use('/api/character-cnft-slots', slotRoutes); // Original routes
+app.use('/api/character-cnft-slots', slotOffchainRoutes); // Off-chain routes (no PDAs)
 app.use('/api/cobx', cobxRoutes);
+app.use('/api/cobx', cobxOffchainRoutes); // Off-chain routes
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/players', playersRoutes);
+app.use('/api/players', playersOffchainRoutes); // Off-chain routes (no PDAs)
 app.use('/api/items', itemRoutes);
 app.use('/api/player-structures', playerStructureRoutes);
 app.use('/api/craft', craftingRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/profiles', profileRoutes);
+app.use('/api/character-customization', characterCustomizationRoutes);
 app.use('/api/nfts', nftRoutes);
 app.use('/api/character-selection', characterSelectionRoutes);
+app.use('/api/quests', questRoutes);
+app.use('/api/config', configRoutes);
 
 // Root endpoint
 app.get('/', (req: any, res: any) => {
@@ -272,7 +276,11 @@ app.listen(PORT, '0.0.0.0', async () => {
             }
             const stats = await NftColumns.columnsToStatsWithSkills(row);
             // Trigger on-chain JSON update using existing flow
+            // Note: playerPDA is optional - updateCharacterCNFT will use asset.leafOwner if not provided
+            // This works for both old PDA-based cNFTs and new treasury-based cNFTs
             const { updateCharacterCNFT } = await import('./services/cnft');
+            // Only pass player_pda if it exists (for backward compatibility with old cNFTs)
+            // New off-chain cNFTs are in treasury, so leafOwner will be determined from asset
             const res = await updateCharacterCNFT(assetId, stats, row.player_pda || undefined);
             if (res.success) {
               await markAssetSynced(assetId);

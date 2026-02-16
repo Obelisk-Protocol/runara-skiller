@@ -2,7 +2,7 @@
  * 🎮 cNFT Item Metadata System
  * 
  * Comprehensive metadata definitions for all basic items and materials
- * that can be minted as compressed NFTs in Obelisk Paradox
+ * that can be minted as compressed NFTs in Runara
  */
 
 export interface CNFTAttribute {
@@ -557,7 +557,7 @@ export function generateCNFTMetadata(
     foundInDungeon = 'Unknown Dungeon',
     foundOnFloor = 1,
     discoveredBy = 'Anonymous Adventurer',
-    imageBaseUrl = 'https://obeliskparadox.com/images/items'
+    imageBaseUrl = 'https://runara.fun/images/items'
   } = options;
 
   // Base attributes from item definition
@@ -583,7 +583,7 @@ export function generateCNFTMetadata(
     name: item.name,
     description: `${item.description}\n\nDiscovered in ${foundInDungeon} on floor ${foundOnFloor} by ${discoveredBy}.`,
     image: `${imageBaseUrl}/${item.imageFileName}`,
-    external_url: 'https://obeliskparadox.com',
+    external_url: 'https://runara.fun',
     attributes,
     properties: {
       files: [

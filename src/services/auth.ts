@@ -155,20 +155,20 @@ export async function signIn(username: string, password: string): Promise<AuthTo
     // Find user by username (check both users table and profiles table for migration)
     const emailFormat = `${username}@local.game`;
     
-    // First try to find in users table
+    // First try to find in users table (case-insensitive)
     let userResult = await client.query(
       `SELECT u.id, u.username, u.email, u.password_hash
        FROM users u
-       WHERE u.username = $1 OR u.email = $1 OR u.email = $2`,
+       WHERE LOWER(u.username) = LOWER($1) OR u.email = $1 OR LOWER(u.email) = LOWER($2)`,
       [username, emailFormat]
     );
     
-    // If not found, check profiles table (migration from Supabase)
+    // If not found, check profiles table (migration from Supabase) - case-insensitive
     if (userResult.rows.length === 0) {
       const profileResult = await client.query(
         `SELECT p.id, p.username
          FROM profiles p
-         WHERE p.username = $1`,
+         WHERE LOWER(p.username) = LOWER($1)`,
         [username]
       );
       
@@ -198,7 +198,7 @@ export async function signIn(username: string, password: string): Promise<AuthTo
     
     const user = userResult.rows[0];
     
-    // Check if user has password_hash (new system) or needs Supabase auth (migration)
+    // Check if user has password_hash (new system) or is a migrated account
     if (user.password_hash) {
       // New system: verify password
       const isValid = await verifyPassword(password, user.password_hash);
@@ -206,14 +206,19 @@ export async function signIn(username: string, password: string): Promise<AuthTo
         throw new Error('Invalid username or password');
       }
     } else {
-      // Migration mode: Supabase removed - JWT auth only
-      // Supabase fallback removed
-      if (false) { // Disabled - Supabase removed
-        throw new Error('Authentication system not configured');
-      }
-      
-      // Supabase migration mode removed - all users must have password_hash
-      throw new Error('User account needs password reset - please contact support');
+      // Migrated account with no password_hash yet:
+      // Treat the provided password as the new password, set password_hash, and continue.
+      const newHash = await hashPassword(password);
+      await client.query(
+        `UPDATE users
+         SET password_hash = $2,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [user.id, newHash]
+      );
+
+      // Update local user object so subsequent logic uses the new hash if needed
+      user.password_hash = newHash;
     }
     
     // Get profile
@@ -236,6 +241,80 @@ export async function signIn(username: string, password: string): Promise<AuthTo
         profile
       }
     };
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Reset or set password for a user.
+ *
+ * This is primarily for migrated accounts that don't yet have a password_hash.
+ * It:
+ * - Looks up the user by username/email in users
+ * - If not found, looks in profiles and ensures a users row exists
+ * - Sets/updates password_hash with the new hashed password
+ */
+export async function resetPassword(username: string, newPassword: string): Promise<void> {
+  const client = getPgClient();
+
+  try {
+    await client.connect();
+
+    const emailFormat = `${username}@local.game`;
+
+    // Try to find user in users table first
+    let userResult = await client.query(
+      `SELECT id, username, email
+       FROM users
+       WHERE username = $1 OR email = $1 OR email = $2`,
+      [username, emailFormat]
+    );
+
+    // If not found, check profiles and create a users row if needed
+    if (userResult.rows.length === 0) {
+      const profileResult = await client.query(
+        `SELECT id, username
+         FROM profiles
+         WHERE username = $1`,
+        [username]
+      );
+
+      if (profileResult.rows.length === 0) {
+        throw new Error('User not found');
+      }
+
+      const profile = profileResult.rows[0];
+
+      await client.query(
+        `INSERT INTO users (id, username, email, created_at, updated_at)
+         VALUES ($1, $2, $3, NOW(), NOW())
+         ON CONFLICT (id) DO NOTHING`,
+        [profile.id, profile.username, emailFormat]
+      );
+
+      userResult = await client.query(
+        `SELECT id, username, email
+         FROM users
+         WHERE id = $1`,
+        [profile.id]
+      );
+    }
+
+    if (userResult.rows.length === 0) {
+      throw new Error('User not found');
+    }
+
+    const user = userResult.rows[0];
+    const passwordHash = await hashPassword(newPassword);
+
+    await client.query(
+      `UPDATE users
+       SET password_hash = $2,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [user.id, passwordHash]
+    );
   } finally {
     await client.end();
   }

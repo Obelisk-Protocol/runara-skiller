@@ -7,6 +7,8 @@ import { Router } from 'express';
 import { Client } from 'pg';
 import { authenticateUser } from '../utils/auth-helper';
 import { z } from 'zod';
+import { PublicKey } from '@solana/web3.js';
+import nacl from 'tweetnacl';
 
 const router = Router();
 
@@ -542,6 +544,87 @@ router.get('/validate-username', async (req: any, res: any) => {
     return res.status(500).json({
       error: 'Internal server error',
       available: false
+    });
+  } finally {
+    await client.end();
+  }
+});
+
+/**
+ * POST /api/profiles/link-wallet
+ * Link a Solana wallet to the authenticated user's profile
+ * Verifies wallet signature before linking
+ */
+router.post('/link-wallet', async (req: any, res: any) => {
+  const client = getPgClient();
+  
+  try {
+    await client.connect();
+    
+    const { userId } = await authenticateUser(req);
+    const { message, signature, publicKey } = req.body;
+    
+    if (!message || !signature || !publicKey) {
+      return res.status(400).json({
+        error: 'Missing required parameters: message, signature, publicKey'
+      });
+    }
+    
+    // Verify signature using nacl
+    const messageBytes = new TextEncoder().encode(message);
+    const signatureBytes = new Uint8Array(Buffer.from(signature, 'base64'));
+    const publicKeyBytes = new PublicKey(publicKey).toBytes();
+    const isVerified = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+    
+    if (!isVerified) {
+      return res.status(403).json({
+        error: 'Signature verification failed'
+      });
+    }
+    
+    const walletAddress = new PublicKey(publicKey).toBase58();
+    
+    // Check if wallet is already linked to another account
+    const existingProfile = await client.query(
+      'SELECT id, username FROM profiles WHERE LOWER(wallet_address) = LOWER($1) AND id != $2',
+      [walletAddress, userId]
+    );
+    
+    if (existingProfile.rows.length > 0) {
+      return res.status(409).json({
+        error: 'This wallet is already linked to another account'
+      });
+    }
+    
+    // Update profile with wallet address
+    const result = await client.query(
+      `UPDATE profiles 
+       SET wallet_address = $1, updated_at = NOW() 
+       WHERE id = $2 
+       RETURNING *`,
+      [walletAddress, userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Profile not found'
+      });
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Wallet linked successfully',
+      profile: result.rows[0]
+    });
+  } catch (error: any) {
+    if (error.message.includes('Unauthorized')) {
+      return res.status(401).json({ error: error.message });
+    }
+    
+    console.error('Error linking wallet:', error);
+    return res.status(500).json({
+      error: 'Failed to link wallet',
+      details: error.message
     });
   } finally {
     await client.end();

@@ -287,7 +287,8 @@ router.post('/mint-item', async (req: any, res: any) => {
       
       // Create a metadata URI (in production, upload to IPFS/Arweave)
       // For now, we'll use a placeholder - you should upload metadata and store the URI
-      const metadataUri = `https://api.obeliskparadox.com/metadata/items/${itemId}/${Date.now()}`;
+      const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
+      const metadataUri = `${backendBase}/metadata/items/${itemId}/${Date.now()}`;
       
       return {
         itemId,

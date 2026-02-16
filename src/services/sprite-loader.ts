@@ -20,35 +20,62 @@ export async function loadSpriteFile(filename: string): Promise<Buffer> {
     return spriteCache.get(filename)!;
   }
 
-  const frontendUrl = (process.env.FRONTEND_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
-  const spriteUrl = `${frontendUrl}/assets/sprites/playablecharacters/baseplayer/${filename}`;
+  // Try filesystem first (more reliable than URL fetch)
+  // Try multiple possible paths (dev vs production)
+  const possiblePaths = [
+    // Production: from dist/services/ -> dist/../public/
+    path.join(__dirname, '../../public/assets/sprites/playablecharacters/baseplayer', filename),
+    // Alternative: from dist/services/ -> public/ (if public is at root)
+    path.join(__dirname, '../../../public/assets/sprites/playablecharacters/baseplayer', filename),
+    // Development: from src/services/ -> src/../public/
+    path.join(process.cwd(), 'public/assets/sprites/playablecharacters/baseplayer', filename),
+    // Railway/absolute path fallback
+    path.join(process.cwd(), 'dist/public/assets/sprites/playablecharacters/baseplayer', filename),
+  ];
 
-  try {
-    // Try fetching from frontend URL first
-    const buffer = await fetchSpriteFromUrl(spriteUrl);
-    spriteCache.set(filename, buffer);
-    return buffer;
-  } catch (error) {
-    console.warn(`[SpriteLoader] Failed to fetch ${filename} from URL: ${error instanceof Error ? error.message : String(error)}`);
-    
-    // Fallback to filesystem (if sprites are copied to backend)
+  for (const localPath of possiblePaths) {
     try {
-      const localPath = path.join(
-        __dirname,
-        '../../public/assets/sprites/playablecharacters/baseplayer',
-        filename
-      );
-      
       if (fs.existsSync(localPath)) {
         const buffer = fs.readFileSync(localPath);
         spriteCache.set(filename, buffer);
+        console.log(`[SpriteLoader] Loaded ${filename} from filesystem: ${localPath}`);
         return buffer;
       }
     } catch (fsError) {
-      console.warn(`[SpriteLoader] Failed to load ${filename} from filesystem: ${fsError instanceof Error ? fsError.message : String(fsError)}`);
+      // Continue to next path
+      continue;
     }
+  }
+  
+  console.warn(`[SpriteLoader] Could not find ${filename} in filesystem. Tried paths:`, possiblePaths);
 
-    throw new Error(`Failed to load sprite file: ${filename}. Tried URL (${spriteUrl}) and filesystem.`);
+  // Fallback to URL fetch (only if filesystem fails)
+  const frontendUrl = (process.env.FRONTEND_BASE_URL || process.env.VITE_PUBLIC_URL || process.env.NEXT_PUBLIC_FRONTEND_URL || '').replace(/\/$/, '');
+  
+  // Skip URL fetch if it's the old Vercel URL
+  if (frontendUrl && frontendUrl.includes('vercel.app')) {
+    console.warn(`[SpriteLoader] Skipping Vercel URL: ${frontendUrl}`);
+    throw new Error(`Failed to load sprite file: ${filename}. FRONTEND_BASE_URL points to old Vercel deployment. Please configure FRONTEND_BASE_URL to point to your new frontend deployment.`);
+  }
+  
+  // If no frontend URL configured, provide helpful error
+  if (!frontendUrl) {
+    console.error(`[SpriteLoader] No FRONTEND_BASE_URL configured. Please set FRONTEND_BASE_URL environment variable to your frontend deployment URL (e.g., https://yourdomain.com)`);
+    throw new Error(`Failed to load sprite file: ${filename}. No FRONTEND_BASE_URL configured and filesystem path not found. Please set FRONTEND_BASE_URL environment variable.`);
+  }
+  
+  const spriteUrl = `${frontendUrl}/assets/sprites/playablecharacters/baseplayer/${filename}`;
+  console.log(`[SpriteLoader] Attempting to fetch sprite from: ${spriteUrl}`);
+
+  try {
+    // Try fetching from frontend URL
+    const buffer = await fetchSpriteFromUrl(spriteUrl);
+    spriteCache.set(filename, buffer);
+    console.log(`[SpriteLoader] Successfully loaded ${filename} from ${spriteUrl}`);
+    return buffer;
+  } catch (error) {
+    console.error(`[SpriteLoader] Failed to fetch ${filename} from URL: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Failed to load sprite file: ${filename}. Tried filesystem and URL (${spriteUrl}). Please ensure FRONTEND_BASE_URL is correct and the frontend is accessible.`);
   }
 }
 

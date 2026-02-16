@@ -3,13 +3,13 @@ import { testDatabaseConnection } from '../config/database';
 
 const router = Router();
 
-// Health check endpoint
+// Health check endpoint — always return 200 when the app is up so Railway/proxies route traffic.
+// DB status is in the body for monitoring; 503 would cause 502 at the load balancer.
 router.get('/', async (req: any, res: any) => {
   try {
     const dbConnected = await testDatabaseConnection();
-    
     const healthData = {
-      status: 'healthy',
+      status: dbConnected ? 'healthy' : 'degraded',
       timestamp: new Date().toISOString(),
       version: '1.0.0',
       services: {
@@ -18,12 +18,9 @@ router.get('/', async (req: any, res: any) => {
       },
       environment: process.env.NODE_ENV || 'development'
     };
-    
-    const statusCode = dbConnected ? 200 : 503;
-    res.status(statusCode).json(healthData);
-    
+    res.status(200).json(healthData);
   } catch (error) {
-    res.status(500).json({
+    res.status(200).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
       error: error instanceof Error ? error.message : 'Unknown error'

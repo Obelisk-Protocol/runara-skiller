@@ -12,29 +12,32 @@
  */
 
 // Load environment variables FIRST before any imports
-import dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// Load environment variables from .env file in the obelisk-skiller directory
+// Custom .env loader that preserves FIRST value for duplicate keys
 const envPath = path.join(__dirname, '..', '.env');
 if (fs.existsSync(envPath)) {
-  dotenv.config({ path: envPath });
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  envContent.split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx <= 0) return;
+    const key = trimmed.substring(0, eqIdx).trim();
+    const value = trimmed.substring(eqIdx + 1).trim().replace(/^[\"']|[\"']$/g, '');
+    // Only set if not already defined (first definition wins)
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  });
   console.log('✅ Loaded .env from:', envPath);
 } else {
-  // Try parent directory
-  const parentEnvPath = path.join(__dirname, '..', '..', '.env');
-  if (fs.existsSync(parentEnvPath)) {
-    dotenv.config({ path: parentEnvPath });
-    console.log('✅ Loaded .env from:', parentEnvPath);
-  } else {
-    dotenv.config(); // Fallback to default .env location
-    console.log('⚠️ Using default .env location');
-  }
+  console.log('⚠️ .env file not found, relying on process environment');
 }
 
 // Now import after env vars are loaded
-import { supabase } from '../src/config/database';
+import { pgQuery, pgQuerySingle } from '../src/utils/pg-helper';
 import { repairNFTMetadataURI } from '../src/services/cnft';
 
 interface UpdateResult {
@@ -50,8 +53,8 @@ async function updateSingleNFTOnChain(assetId: string, name: string, dryRun: boo
     if (dryRun) {
       // Create URL-safe name
       const urlSafeName = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
-      const metadataUri = `${backendBase}/metadata/${urlSafeName}`;
+      const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
+      const metadataUri = `${backendBase}/api/characters/metadata/${urlSafeName}`;
       console.log(`  [DRY RUN] Would update URI to: ${metadataUri}`);
       return {
         assetId,
@@ -60,14 +63,22 @@ async function updateSingleNFTOnChain(assetId: string, name: string, dryRun: boo
       };
     }
     
-    // Get playerPDA from database
-    const { data: nftRow } = await supabase
-      .from('nfts')
-      .select('player_pda')
-      .eq('asset_id', assetId)
-      .single();
-    
-    const playerPDA = nftRow?.player_pda || undefined;
+    // Get playerPDA from database (optional)
+    let playerPDA: string | undefined = undefined;
+    try {
+      const { data: nftRow, error } = await pgQuerySingle<{ player_pda: string | null }>(
+        'SELECT player_pda FROM nfts WHERE asset_id = $1',
+        [assetId]
+      );
+
+      if (error) {
+        console.warn(`⚠️ Could not fetch player_pda for asset ${assetId}:`, error.message);
+      } else if (nftRow?.player_pda) {
+        playerPDA = nftRow.player_pda;
+      }
+    } catch (dbErr: any) {
+      console.warn(`⚠️ Database error fetching player_pda for asset ${assetId}:`, dbErr?.message || dbErr);
+    }
     
     const result = await repairNFTMetadataURI(assetId, playerPDA);
     
@@ -110,17 +121,17 @@ async function main() {
   try {
     // Fetch all assetIds from nfts table
     console.log('📋 Fetching all NFTs from database...');
-    let query = supabase
-      .from('nfts')
-      .select('asset_id, name')
-      .order('updated_at', { ascending: false });
-    
-    if (limit) {
-      query = query.limit(limit);
-    }
-    
-    const { data: nfts, error: fetchError } = await query;
-    
+
+    // Build SQL with optional LIMIT
+    const baseSql = 'SELECT asset_id, name FROM nfts ORDER BY updated_at DESC';
+    const sql = limit ? `${baseSql} LIMIT $1` : baseSql;
+    const params = limit ? [limit] : [];
+
+    const { data: nfts, error: fetchError } = await pgQuery<{ asset_id: string; name: string | null }>(
+      sql,
+      params
+    );
+
     if (fetchError) {
       console.error('❌ Failed to fetch NFTs:', fetchError.message);
       process.exit(1);

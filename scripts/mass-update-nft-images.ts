@@ -146,7 +146,7 @@ async function updateSingleNFT(assetId: string, dryRun: boolean): Promise<Update
           symbol: 'PLAYER',
           description: `Character with ${stats.totalLevel} total skill levels`,
           image: imageUrl,
-          external_url: 'https://obeliskparadox.com',
+          external_url: 'https://runara.fun',
           attributes: [
             { trait_type: 'Version', value: stats.version || '2.0.0' },
             { trait_type: 'Level', value: stats.combatLevel.toString() },

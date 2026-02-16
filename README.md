@@ -1,6 +1,6 @@
 # Obelisk Skiller Backend
 
-TypeScript backend service for Obelisk Paradox character and skill management on Solana blockchain.
+TypeScript backend service for Runara character and skill management on Solana blockchain.
 
 ## 🚀 Features
 

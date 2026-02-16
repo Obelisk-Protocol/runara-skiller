@@ -125,7 +125,7 @@ async function main() {
     console.log(`✅ Successfully fixed NFT image!`);
     console.log(`   Image URL: ${imageUrl}`);
     console.log(`   Metadata updated with image field`);
-    console.log(`   View metadata: https://www.obeliskparadox.com/metadata/${nftRow.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`);
+    console.log(`   View metadata: https://obelisk-skiller-production.up.railway.app/metadata/${nftRow.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`);
     
   } catch (error) {
     console.error('❌ Error fixing NFT image:', error);

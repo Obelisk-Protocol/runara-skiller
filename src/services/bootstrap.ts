@@ -96,11 +96,30 @@ export async function ensureNftTable(): Promise<void> {
           }
         }
         
+        // Load polygon collision migration if it exists
+        const polygonCollisionMigrationPaths = [
+          path.join(__dirname, '../../migrations/20250206000000_add_polygon_collision.sql'),
+          path.join(process.cwd(), 'migrations/20250206000000_add_polygon_collision.sql'),
+          path.join(process.cwd(), 'obelisk-skiller/migrations/20250206000000_add_polygon_collision.sql'),
+        ];
+        
+        let polygonCollisionMigrationSQL: string | null = null;
+        for (const testPath of polygonCollisionMigrationPaths) {
+          if (fs.existsSync(testPath)) {
+            polygonCollisionMigrationSQL = fs.readFileSync(testPath, 'utf-8');
+            console.log(`📝 Loading polygon collision migration...`);
+            break;
+          }
+        }
+        
         // Use a transaction for atomicity
         await client.query('BEGIN');
         await client.query(migrationSQL);
         if (authMigrationSQL) {
           await client.query(authMigrationSQL);
+        }
+        if (polygonCollisionMigrationSQL) {
+          await client.query(polygonCollisionMigrationSQL);
         }
         await client.query('COMMIT');
         

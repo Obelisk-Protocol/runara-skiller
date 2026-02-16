@@ -188,20 +188,63 @@ export async function pollForAssetIdViaDAS(
 // Create character cNFT (exactly matching your frontend logic)
 export async function createCharacterCNFT(
   playerPDA: string,
-  characterName: string
+  characterName: string,
+  playerId?: string, // Optional player UUID for off-chain tracking
+  characterImageBase64?: string // Optional: character preview image from frontend (base64, no data URL prefix)
 ): Promise<{ success: boolean; assetId?: string; signature?: string; error?: string }> {
   try {
     // Generate character stats
     const characterStats = generateDefaultCharacterStats(characterName);
     
-    // Generate character image
-    console.log('🎨 Generating character image...');
-    const defaultCustomization = getDefaultCustomization();
-    const imageBuffer = await generateCharacterImage({
-      customization: defaultCustomization,
-      includeBackground: false
-    });
-    console.log(`✅ Generated character image: ${imageBuffer.length} bytes`);
+    // Use provided character image or generate one
+    let imageBuffer: Buffer;
+    if (characterImageBase64 && typeof characterImageBase64 === 'string' && characterImageBase64.length > 0) {
+      console.log(`🎨 Using provided character image from frontend (${characterImageBase64.length} chars)...`);
+      try {
+        // Handle both data URL format (data:image/png;base64,...) and raw base64
+        let base64Data = characterImageBase64.trim();
+        if (base64Data.includes(',')) {
+          // Remove data URL prefix if present
+          base64Data = base64Data.split(',')[1];
+        }
+        
+        // Validate base64 string (basic check)
+        if (!base64Data || base64Data.length < 100) {
+          throw new Error('Base64 string too short or empty');
+        }
+        
+        // Convert base64 string to Buffer
+        imageBuffer = Buffer.from(base64Data, 'base64');
+        console.log(`✅ Loaded character image from frontend: ${imageBuffer.length} bytes`);
+        
+        // Validate it's actually an image (PNG header: 89 50 4E 47)
+        if (imageBuffer.length < 8) {
+          throw new Error('Image buffer too small');
+        }
+        // Check PNG magic number
+        if (imageBuffer[0] !== 0x89 || imageBuffer[1] !== 0x50 || imageBuffer[2] !== 0x4E || imageBuffer[3] !== 0x47) {
+          console.warn('⚠️ Image data does not have PNG header, but continuing anyway');
+        }
+      } catch (err) {
+        console.warn('⚠️ Failed to parse provided image, generating new one:', err instanceof Error ? err.message : String(err));
+        // Fallback to generating image
+        const defaultCustomization = getDefaultCustomization();
+        imageBuffer = await generateCharacterImage({
+          customization: defaultCustomization,
+          includeBackground: false
+        });
+        console.log(`✅ Generated character image (fallback): ${imageBuffer.length} bytes`);
+      }
+    } else {
+      // Generate character image from sprites
+      console.log('🎨 Generating character image from sprites...');
+      const defaultCustomization = getDefaultCustomization();
+      imageBuffer = await generateCharacterImage({
+        customization: defaultCustomization,
+        includeBackground: false
+      });
+      console.log(`✅ Generated character image: ${imageBuffer.length} bytes`);
+    }
     
     // Upload image to Supabase Storage (faster and more reliable than Arweave)
     console.log('📤 Uploading character image to Supabase Storage...');
@@ -222,7 +265,7 @@ export async function createCharacterCNFT(
       symbol: 'PLAYER',
       description: `Character with ${characterStats.totalLevel} total skill levels`,
       image: imageUrl,
-      external_url: 'https://obeliskparadox.com',
+      external_url: 'https://runara.fun',
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
         { trait_type: 'Level', value: characterStats.combatLevel.toString() },
@@ -250,13 +293,11 @@ export async function createCharacterCNFT(
     };
     
     // Store metadata in database (no Arweave - faster and more reliable)
-    // We'll use a metadata URL that points to our API endpoint
-    // Use official domain with shorter path for Solana transaction size limits
-    // The Next.js app will proxy /metadata/* to the Railway backend
-    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
+    // We'll use a metadata URL that points directly to the backend API endpoint
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
     // Create URL-safe name: lowercase, spaces -> hyphens, remove special chars
     const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const metadataUri = `${backendBase}/metadata/${urlSafeName}`;
+    const metadataUri = `${backendBase}/api/characters/metadata/${urlSafeName}`;
     console.log(`✅ Using metadata URL: ${metadataUri}`);
     
     // Store metadata in database for API endpoint to serve
@@ -297,104 +338,194 @@ export async function createCharacterCNFT(
       ]
     };
 
-    // Mint the cNFT - NO FALLBACKS, processed commitment only
-    const mintTx = await mintToCollectionV1(umi, {
-      leafOwner: publicKey(playerPDA),
-      leafDelegate: serverSigner.publicKey,
-      merkleTree: publicKey(MERKLE_TREE),
-      collectionMint: publicKey(COLLECTION_MINT),
-      metadata
-    }).sendAndConfirm(umi, {
-      confirm: { commitment: 'processed' }
-    });
+    // Mint the cNFT - Skip preflight to avoid simulation errors
+    // Note: Simulation may fail due to collection metadata checks, but actual transaction can succeed
+    let mintTx;
+    let mintSignature = '';
+    let rawUmiSignature: Uint8Array | null = null;
+    
+    try {
+      mintTx = await mintToCollectionV1(umi, {
+        leafOwner: publicKey(playerPDA),
+        leafDelegate: serverSigner.publicKey,
+        merkleTree: publicKey(MERKLE_TREE),
+        collectionMint: publicKey(COLLECTION_MINT),
+        metadata
+      }).sendAndConfirm(umi, {
+        send: { skipPreflight: true }, // Skip simulation - transaction may succeed even if simulation fails
+        confirm: { commitment: 'processed' }
+      });
 
-    // Extract signature immediately
-    const rawSig: any = (mintTx as any)?.signature
-    let mintSignature = ''
-      if (typeof rawSig === 'string') mintSignature = rawSig
-      else if (rawSig && typeof Buffer !== 'undefined' && typeof require !== 'undefined') {
-        const bs58 = require('bs58')
-        mintSignature = bs58.encode(Uint8Array.from(rawSig))
+      // Extract signature - keep raw Uint8Array for UMI parser
+      const rawSig: any = (mintTx as any)?.signature;
+      if (rawSig) {
+        rawUmiSignature = new Uint8Array(rawSig);
+        const bs58 = require('bs58');
+        mintSignature = bs58.encode(rawUmiSignature);
+      } else if (typeof rawSig === 'string') {
+        mintSignature = rawSig;
       }
+    } catch (mintError: any) {
+      // Check if error is a simulation error but transaction might have succeeded
+      const errorMsg = mintError?.message || String(mintError);
+      const isSimulationError = 
+        errorMsg.includes('Simulation failed') ||
+        errorMsg.includes('0xbc4') ||
+        errorMsg.includes('AccountNotInitialized') ||
+        errorMsg.includes('collection_metadata');
+      
+      // Try to extract signature from error (some RPCs include it even on simulation failure)
+      if (mintError?.signature) {
+        const errSig = mintError.signature;
+        if (typeof errSig === 'string') {
+          mintSignature = errSig;
+        } else if (errSig) {
+          rawUmiSignature = new Uint8Array(errSig);
+          const bs58 = require('bs58');
+          mintSignature = bs58.encode(rawUmiSignature);
+        }
+      }
+      
+      // If we have a signature, the transaction might have succeeded despite simulation error
+      if (mintSignature && isSimulationError) {
+        console.warn('⚠️ Simulation failed but transaction may have succeeded. Signature:', mintSignature);
+        console.warn('⚠️ Will attempt to verify transaction and extract asset ID...');
+      } else {
+        // Re-throw if it's not a simulation error or we don't have a signature
+        throw mintError;
+      }
+    }
     
     if (!mintSignature) {
       throw new Error('Failed to extract transaction signature');
     }
     
-    // Extract asset ID from transaction logs
-    // Note: Even with processed commitment, transaction may need a moment to be queryable
+    console.log('📝 Mint signature:', mintSignature);
+    
+    // ── Step 1: Explicitly confirm the transaction to 'confirmed' level ──
+    // The mint used 'processed' commitment for speed, but the Metaplex parser
+    // (and getTransaction) need 'confirmed'. We must wait for it.
     const rpcUrl = getRpcUrl();
-    if (!rpcUrl) {
-      throw new Error('RPC URL not configured');
-    }
+    const connection = new Connection(rpcUrl!);
     
-    // Fetch transaction - try processed first, then confirmed if needed
-    let tx = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const commitment = attempt === 0 ? 'processed' : 'confirmed';
-      const txRes = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'getTransaction',
-          method: 'getTransaction',
-          params: [mintSignature, { commitment, maxSupportedTransactionVersion: 0 }]
-        })
-      });
+    try {
+      console.log('⏳ Waiting for transaction to reach confirmed status...');
+      const latestBlockhash = await connection.getLatestBlockhash('confirmed');
+      const confirmation = await connection.confirmTransaction({
+        signature: mintSignature,
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+      }, 'confirmed');
       
-      const txJson: any = await txRes.json();
-      tx = txJson?.result;
-      
-      if (tx) break;
-      
-      // Small delay only if first attempt failed
-      if (attempt === 0) {
-        await new Promise(resolve => setTimeout(resolve, 300));
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
       }
+      console.log('✅ Transaction confirmed!');
+    } catch (confirmErr: any) {
+      // Don't throw yet - the transaction might still be findable, we'll try parsing
+      console.warn('⚠️ confirmTransaction warning:', confirmErr?.message);
     }
     
-    if (!tx) {
-      throw new Error('Transaction not found - cannot derive asset ID');
-    }
-    
-    // Extract asset ID directly from logs
-    const logs: string[] = (tx as any)?.meta?.logMessages || [];
+    // ── Step 2: Extract asset ID ──
     let resolvedAssetId: string | null = null;
     
-    // Extract asset ID from "Leaf asset ID: <address>" log
-    for (const log of logs) {
-      const match = String(log).match(/Leaf\s+asset\s+ID[:\s]+([A-Za-z0-9]{32,44})/i);
-      if (match && match[1]) {
-        const candidate = match[1].trim();
-        if (candidate.length >= 32 && candidate.length <= 44 && /^[A-Za-z0-9]+$/.test(candidate)) {
-          resolvedAssetId = candidate;
-          break;
-        }
+    // Ensure we have raw UMI signature bytes for the parser
+    if (!rawUmiSignature && mintSignature) {
+      try {
+        const bs58 = require('bs58');
+        rawUmiSignature = bs58.decode(mintSignature);
+      } catch {
+        // will fall through to manual method
       }
     }
     
-    // Fallback: extract leafIndex and derive PDA
-    if (!resolvedAssetId) {
-      let leafIndex: number | null = null;
-      for (const log of logs) {
-        const match = String(log).match(/leaf.*?index.*?(\d+)|index.*?(\d+).*?leaf|nonce.*?(\d+)/i);
-        if (match) {
-          leafIndex = parseInt(match[1] || match[2] || match[3]);
-          if (leafIndex !== null) break;
+    // Method 1: Use Metaplex parseLeafFromMintToCollectionV1Transaction (preferred)
+    // Transaction should already be confirmed at this point
+    if (rawUmiSignature) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const leaf = await parseLeafFromMintToCollectionV1Transaction(umi, rawUmiSignature);
+          if (leaf && leaf.nonce !== undefined) {
+            const assetIdPda = findLeafAssetIdPda(umi, {
+              merkleTree: publicKey(MERKLE_TREE),
+              leafIndex: leaf.nonce,
+            });
+            resolvedAssetId = assetIdPda.toString();
+            console.log(`✅ Asset ID extracted via Metaplex parser (attempt ${attempt + 1}):`, resolvedAssetId);
+            break;
+          }
+        } catch (parseErr: any) {
+          console.warn(`⚠️ parseLeaf attempt ${attempt + 1}/3 failed:`, parseErr?.message || parseErr);
         }
+        // Short delay between retries (transaction is already confirmed)
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
-      
-      if (leafIndex !== null) {
-        const assetIdPda = findLeafAssetIdPda(umi, {
-          merkleTree: publicKey(MERKLE_TREE),
-          leafIndex: BigInt(leafIndex),
-        });
-        resolvedAssetId = assetIdPda.toString();
+    }
+    
+    // Method 2: Fallback — fetch transaction via RPC and extract leaf index from inner instructions
+    if (!resolvedAssetId) {
+      console.warn('⚠️ Metaplex parser failed, falling back to manual transaction parsing...');
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const txResponse = await connection.getTransaction(mintSignature, {
+            commitment: 'confirmed',
+            maxSupportedTransactionVersion: 0,
+          });
+          
+          if (txResponse) {
+            const logs: string[] = txResponse.meta?.logMessages || [];
+            console.log(`📋 Transaction has ${logs.length} log messages`);
+            
+            // Method 2a: Look for "Leaf asset ID: <base58>" directly in logs
+            // This is the most direct way — Bubblegum logs the asset ID itself
+            for (const log of logs) {
+              const assetMatch = String(log).match(/Leaf asset ID:\s*([1-9A-HJ-NP-Za-km-z]{32,44})/);
+              if (assetMatch) {
+                resolvedAssetId = assetMatch[1];
+                console.log(`✅ Asset ID extracted directly from logs:`, resolvedAssetId);
+                break;
+              }
+            }
+            
+            // Method 2b: Look for nonce/leaf_index to derive the asset ID
+            if (!resolvedAssetId) {
+              for (const log of logs) {
+                const match = String(log).match(/(?:nonce|leaf_index|leafIndex)[:\s=]+(\d+)/i);
+                if (match) {
+                  const leafIndex = parseInt(match[1]);
+                  if (!isNaN(leafIndex)) {
+                    const assetIdPda = findLeafAssetIdPda(umi, {
+                      merkleTree: publicKey(MERKLE_TREE),
+                      leafIndex: BigInt(leafIndex),
+                    });
+                    resolvedAssetId = assetIdPda.toString();
+                    console.log(`✅ Asset ID from log nonce (leafIndex=${leafIndex}):`, resolvedAssetId);
+                    break;
+                  }
+                }
+              }
+            }
+            
+            if (resolvedAssetId) break;
+            
+            // If we got the transaction but couldn't extract, log all messages for debugging
+            if (!resolvedAssetId) {
+              console.warn('⚠️ Got transaction but could not extract asset ID. All log messages:');
+              logs.forEach((log, i) => console.warn(`  [${i}] ${log}`));
+            }
+          } else {
+            console.warn(`⚠️ getTransaction returned null (attempt ${attempt + 1}/3)`);
+          }
+        } catch (fetchErr: any) {
+          console.warn(`⚠️ Manual tx fetch attempt ${attempt + 1}/3 failed:`, fetchErr?.message);
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
     
     if (!resolvedAssetId) {
+      // Last resort: log the full signature so it can be manually investigated
+      console.error('❌ All asset ID extraction methods failed for signature:', mintSignature);
       throw new Error('Could not extract asset ID from transaction logs');
     }
     
@@ -406,11 +537,10 @@ export async function createCharacterCNFT(
       
       // Update metadata in database with correct assetId and final metadata URI
       // Use character name in URI (like Arweave) - much shorter than assetId
-      // The Next.js app will proxy /metadata/* to the Railway backend
-      const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
+      const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
       // Create URL-safe name: lowercase, spaces -> hyphens, remove special chars
       const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const finalMetadataUri = `${backendBase}/metadata/${urlSafeName}`;
+      const finalMetadataUri = `${backendBase}/api/characters/metadata/${urlSafeName}`;
       
       // Update the metadata JSON with the correct image URL
       const finalJsonPayload = {
@@ -758,7 +888,7 @@ export async function updateCharacterCNFT(
       symbol: 'PLAYER',
       description: `Character with ${characterStats.totalLevel} total skill levels`,
       image: finalImageUrl,
-      external_url: 'https://obeliskparadox.com',
+      external_url: 'https://runara.fun',
       attributes: [
         { trait_type: 'Version', value: characterStats.version || '2.0.0' },
         ...(characterStats.combatLevel != null ? [{ trait_type: 'Level', value: characterStats.combatLevel.toString() }] : []), // Changed from "Combat Level" to "Level"
@@ -785,13 +915,12 @@ export async function updateCharacterCNFT(
     };
     
     // Store metadata in database instead of Arweave
-    // Use official domain with shorter path for Solana transaction size limits
-    // The Next.js app will proxy /metadata/* to the Railway backend
-    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
+    // Point directly to backend API endpoint
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
     // Get character name from stats
     const characterName = characterStats.name || 'character';
     const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const newUri = `${backendBase}/metadata/${urlSafeName}`;
+    const newUri = `${backendBase}/api/characters/metadata/${urlSafeName}`;
     console.log('✅ Storing metadata in database:', newUri);
     
     try {
@@ -824,8 +953,11 @@ export async function updateCharacterCNFT(
     console.log(`📝 Updating URI only (name "${nftDisplayName}" is in database JSON): "${newUri}"`);
     
     // Determine leaf owner
+    // For new off-chain cNFTs: leafOwner is treasury wallet (from assetWithProof.leafOwner)
+    // For old PDA-based cNFTs: can use playerPDA if provided, otherwise use assetWithProof.leafOwner
+    // This allows the function to work with both old and new cNFTs
     const leafOwner = playerPDA ? publicKey(playerPDA) : assetWithProof.leafOwner;
-    console.log(`🎯 Using leaf owner: ${leafOwner}`);
+    console.log(`🎯 Using leaf owner: ${leafOwner}${playerPDA ? ' (from playerPDA)' : ' (from asset)'}`);
     
     // Build update transaction using EXACT same pattern as working route
     let updateTx = updateMetadata(umiWithBubblegum, {
@@ -856,6 +988,21 @@ export async function updateCharacterCNFT(
         } catch (error: any) {
           const errorMsg = error.message || String(error);
           console.error(`❌ Transaction attempt ${i + 1} failed:`, errorMsg);
+
+          // If the Bubblegum collection_metadata account was never initialized, skip on-chain update.
+          // This matches the new off-chain-first architecture: metadata is already stored in our DB,
+          // so a missing collection_metadata account should not be treated as a fatal error.
+          const isUninitializedCollectionMetadata =
+            errorMsg?.includes('AccountNotInitialized') ||
+            errorMsg?.includes('account: collection_metadata');
+
+          if (isUninitializedCollectionMetadata) {
+            console.warn(
+              '⚠️ Bubblegum collection_metadata account not initialized; skipping on-chain metadata update for this asset.'
+            );
+            // Return empty signature to indicate "no on-chain update performed" but no failure.
+            return '';
+          }
           
           // Check if transaction is too large (trying to update both URI and name)
           const isTransactionTooLarge = errorMsg?.includes('too large') || 
@@ -958,9 +1105,8 @@ export async function repairNFTMetadataURI(
     
     // Check current URI
     const currentUri = assetWithProof.metadata.uri as string;
-    // Use official domain for shorter URIs (helps with Solana transaction size limits)
-    // The Next.js app will proxy /metadata/* to the Railway backend
-    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://www.obeliskparadox.com';
+    // Backend base for metadata URIs
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
     // Get character name from database
     let characterName = 'character';
     try {
@@ -974,7 +1120,7 @@ export async function repairNFTMetadataURI(
     
     // Create URL-safe name: lowercase, spaces -> hyphens, remove special chars
     const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const correctUri = `${backendBase}/metadata/${urlSafeName}`;
+    const correctUri = `${backendBase}/api/characters/metadata/${urlSafeName}`;
     
     if (currentUri === correctUri) {
       console.log('✅ Metadata URI is already correct');
@@ -1041,7 +1187,7 @@ export async function repairNFTMetadataURI(
               symbol: 'PLAYER',
               description: `Character with ${stats.totalLevel} total skill levels`,
               image: row.character_image_url || '',
-              external_url: 'https://obeliskparadox.com',
+              external_url: 'https://runara.fun',
               attributes: [
                 { trait_type: 'Version', value: stats.version || '2.0.0' },
                 { trait_type: 'Level', value: stats.combatLevel.toString() },
