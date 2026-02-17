@@ -14,6 +14,63 @@ export interface GenerateImageOptions {
   includeBackground?: boolean; // Optional: include background image
 }
 
+/** PFP output size (zoomed head + upper torso) */
+const PFP_OUTPUT_SIZE = 800;
+
+/**
+ * Crop any character image (e.g. frontend full-body preview) to zoomed PFP style:
+ * top portion = head + upper torso, 800×800. Matches the framing of generateCharacterImage().
+ */
+export async function cropImageToPfpStyle(inputBuffer: Buffer): Promise<Buffer> {
+  const input = sharp(inputBuffer);
+  const meta = await input.metadata();
+  const w = meta.width ?? 112;
+  const h = meta.height ?? 112;
+
+  // Scale to a consistent size (same as backend pipeline: 1600)
+  const scale = 1600 / Math.max(w, h);
+  const scaledW = Math.round(w * scale);
+  const scaledH = Math.round(h * scale);
+  const scaled = await input
+    .resize(scaledW, scaledH, { kernel: sharp.kernel.nearest, fit: 'fill' })
+    .toBuffer();
+
+  // Extract top 60% (head + upper torso)
+  const extractH = Math.floor(scaledH * 0.6);
+  const extracted = await sharp(scaled)
+    .extract({ left: 0, top: 0, width: scaledW, height: extractH })
+    .toBuffer();
+
+  // Scale to 1200×1200 (cover) then extract 800×800 positioned so head is at top
+  const largerScale = 1200;
+  const scaledLarger = await sharp(extracted)
+    .resize(largerScale, largerScale, { kernel: sharp.kernel.nearest, fit: 'cover' })
+    .toBuffer();
+
+  const finalExtractX = Math.floor((largerScale - PFP_OUTPUT_SIZE) / 2);
+  const finalExtractY = 400; // character higher in frame (head at top)
+  const finalCrop = await sharp(scaledLarger)
+    .extract({
+      left: finalExtractX,
+      top: finalExtractY,
+      width: PFP_OUTPUT_SIZE,
+      height: PFP_OUTPUT_SIZE,
+    })
+    .toBuffer();
+
+  return sharp({
+    create: {
+      width: PFP_OUTPUT_SIZE,
+      height: PFP_OUTPUT_SIZE,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([{ input: finalCrop, blend: 'over', left: 0, top: 0 }])
+    .png()
+    .toBuffer();
+}
+
 // Sprite dimensions
 // Idle spritesheet: 448×898 pixels (8 rows × 4 columns)
 const FRAME_WIDTH = 112;  // 448 / 4 = 112

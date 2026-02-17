@@ -90,9 +90,8 @@ try {
 }
 
 const app = express();
-// Railway automatically sets PORT environment variable
-// Use PORT if set, otherwise default to 3000 for local development
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+// Railway sets PORT; default 8080 for local (frontend often uses 3000)
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 
 // Middleware — order and logic restored to pre–CORS-change behavior
 app.use(helmet());
@@ -214,7 +213,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`🌐 Listening on: 0.0.0.0:${PORT}`);
-  console.log(`📌 PORT env var: ${process.env.PORT || 'not set (using default 3000)'}`);
+  console.log(`📌 PORT env var: ${process.env.PORT ?? 'not set (default 8080)'}`);
   const configuredBase = (process.env.BACKEND_URL || '').replace(/\/$/, '');
   const localBase = `http://localhost:${PORT}`;
   const backendBase = configuredBase || localBase;

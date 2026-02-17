@@ -866,117 +866,86 @@ router.post('/:assetId/repair-metadata', async (req: any, res: any) => {
   }
 });
 
-// GET /api/characters/metadata/:assetId - Serve NFT metadata JSON
+// GET /api/characters/metadata/:assetId - Serve NFT metadata JSON (identifier = asset_id or URL-safe character name)
 router.get('/metadata/:identifier', async (req: any, res: any) => {
+  const { identifier } = req.params;
+  const { Client } = await import('pg');
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  let metadataData: any = null;
+  let nftRow: any = null;
+
   try {
-    const { identifier } = req.params;
-    
-    // First try to find by assetId (for legacy URIs)
-    const { Client } = await import('pg');
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
-    });
-    
-    let metadataData: any = null;
-    let nftRow: any = null;
-    
-    try {
-      await client.connect();
-      
-      // Fetch metadata
-      const metadataResult = await client.query(
-        'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+    await client.connect();
+
+    // 1) Look up by asset_id first (e.g. on-chain asset ID or legacy URIs)
+    const metadataResult = await client.query(
+      'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+      [identifier]
+    );
+
+    if (metadataResult.rows.length > 0) {
+      metadataData = metadataResult.rows[0];
+      const nftResult = await client.query(
+        'SELECT asset_id, name, character_image_url FROM nfts WHERE asset_id = $1',
         [identifier]
       );
-      
-      if (metadataResult.rows.length > 0) {
-        metadataData = metadataResult.rows[0];
-        
-        // Also fetch nft row for image URL
-        const nftResult = await client.query(
-          'SELECT asset_id, name, character_image_url FROM nfts WHERE asset_id = $1',
-          [identifier]
-        );
-        
-        if (nftResult.rows.length > 0) {
-          nftRow = nftResult.rows[0];
-        }
-      }
-    } finally {
-      await client.end();
+      if (nftResult.rows.length > 0) nftRow = nftResult.rows[0];
     }
-    
+
     let data: any = metadataData;
     let error: any = metadataData ? null : { code: 'PGRST116' };
-    
-    // If not found, try to find by character name (URL-safe version)
+
+    // 2) If not found, look up by character name (URL-safe: "belac" -> "Belac")
     if (error || !data) {
-      // Convert URL-safe name back: hyphens -> spaces, capitalize first letter of each word
       const nameFromUrl = identifier.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
-      
-      // Reuse client connection for additional queries
-      try {
-        await client.connect();
-        
-        // First, try to find metadata by name in the metadata JSON itself (for pending metadata)
+
+      // Pending metadata keyed by name in JSON
+      const pendingResult = await client.query(
+        'SELECT metadata_json, asset_id FROM nft_metadata WHERE asset_id = $1',
+        ['pending']
+      );
+      if (pendingResult.rows.length > 0) {
+        const pending = pendingResult.rows[0];
+        if (pending.metadata_json && (pending.metadata_json as any)?.name === nameFromUrl) {
+          data = { metadata_json: pending.metadata_json };
+          error = null;
+        }
+      }
+
+      if (error || !data) {
+        const nftByName = await client.query(
+          'SELECT asset_id, name, character_image_url FROM nfts WHERE LOWER(name) = LOWER($1) LIMIT 1',
+          [nameFromUrl]
+        );
+        if (nftByName.rows.length > 0) {
+          nftRow = nftByName.rows[0];
+          const metaByAsset = await client.query(
+            'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
+            [nftRow.asset_id]
+          );
+          if (metaByAsset.rows.length > 0) {
+            data = metaByAsset.rows[0];
+            error = null;
+          }
+        }
+      }
+
+      if ((error || !data) && identifier === 'pending') {
         const pendingResult = await client.query(
-          'SELECT metadata_json, asset_id FROM nft_metadata WHERE asset_id = $1',
+          'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
           ['pending']
         );
-        
         if (pendingResult.rows.length > 0) {
-          const pendingMetadataByName = pendingResult.rows[0];
-          if (pendingMetadataByName.metadata_json && 
-              (pendingMetadataByName.metadata_json as any)?.name === nameFromUrl) {
-            data = { metadata_json: pendingMetadataByName.metadata_json };
-            error = null;
-            console.log(`✅ Found pending metadata by name: ${nameFromUrl}`);
-          } else {
-            // Look up in nfts table by name (case-insensitive)
-            const nftResult = await client.query(
-              'SELECT asset_id, name, character_image_url FROM nfts WHERE LOWER(name) = LOWER($1) LIMIT 1',
-              [nameFromUrl]
-            );
-            
-            if (nftResult.rows.length > 0) {
-              nftRow = nftResult.rows[0];
-              // Found by name, now get metadata by assetId
-              const metadataResult = await client.query(
-                'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
-                [nftRow.asset_id]
-              );
-              
-              if (metadataResult.rows.length > 0) {
-                data = metadataResult.rows[0];
-                error = null;
-              }
-            }
-          }
+          data = pendingResult.rows[0];
+          error = null;
         }
-        
-        // If still not found and identifier is "pending", try to find any pending metadata
-        if ((error || !data) && identifier === 'pending') {
-          const pendingResult = await client.query(
-            'SELECT metadata_json FROM nft_metadata WHERE asset_id = $1',
-            ['pending']
-          );
-          
-          if (pendingResult.rows.length > 0) {
-            data = pendingResult.rows[0];
-            error = null;
-          }
-        }
-      } catch (queryError) {
-        console.error('Error in fallback queries:', queryError);
       }
     }
-    
-    // Close connection after all queries
-    if (!client.ended) {
-      await client.end();
-    }
-    
+
     if (error || !data) {
       console.warn(`⚠️ Metadata not found for identifier: ${identifier}`);
       return res.status(404).json({ error: 'Metadata not found' });
@@ -1094,6 +1063,8 @@ router.get('/metadata/:identifier', async (req: any, res: any) => {
   } catch (error) {
     console.error('❌ Error serving metadata:', error);
     res.status(500).json({ error: 'Failed to serve metadata' });
+  } finally {
+    try { await client.end(); } catch (_) { /* already closed */ }
   }
 });
 

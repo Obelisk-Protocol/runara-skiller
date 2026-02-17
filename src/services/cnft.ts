@@ -24,7 +24,7 @@ import { umi, serverSigner, COLLECTION_MINT, MERKLE_TREE, getDasUrl, getRpcUrl }
 import { CharacterStats, Character } from '../types/character';
 // Removed Arweave - using Supabase Storage and database instead
 import { NftColumns } from './database';
-import { generateCharacterImage } from './character-image-generator';
+import { generateCharacterImage, cropImageToPfpStyle } from './character-image-generator';
 import { getDefaultCustomization } from '../types/character-customization';
 import { saveCharacterImage } from './image-storage';
 // Supabase removed - using PostgreSQL directly
@@ -214,17 +214,20 @@ export async function createCharacterCNFT(
         }
         
         // Convert base64 string to Buffer
-        imageBuffer = Buffer.from(base64Data, 'base64');
-        console.log(`✅ Loaded character image from frontend: ${imageBuffer.length} bytes`);
-        
+        let rawBuffer = Buffer.from(base64Data, 'base64');
+        console.log(`✅ Loaded character image from frontend: ${rawBuffer.length} bytes`);
+
         // Validate it's actually an image (PNG header: 89 50 4E 47)
-        if (imageBuffer.length < 8) {
+        if (rawBuffer.length < 8) {
           throw new Error('Image buffer too small');
         }
-        // Check PNG magic number
-        if (imageBuffer[0] !== 0x89 || imageBuffer[1] !== 0x50 || imageBuffer[2] !== 0x4E || imageBuffer[3] !== 0x47) {
+        if (rawBuffer[0] !== 0x89 || rawBuffer[1] !== 0x50 || rawBuffer[2] !== 0x4E || rawBuffer[3] !== 0x47) {
           console.warn('⚠️ Image data does not have PNG header, but continuing anyway');
         }
+
+        // Apply zoomed PFP crop (head + upper torso, 800×800) so NFT uses same style as backend-generated image
+        imageBuffer = await cropImageToPfpStyle(rawBuffer);
+        console.log(`✅ Cropped frontend image to PFP style: ${imageBuffer.length} bytes`);
       } catch (err) {
         console.warn('⚠️ Failed to parse provided image, generating new one:', err instanceof Error ? err.message : String(err));
         // Fallback to generating image
