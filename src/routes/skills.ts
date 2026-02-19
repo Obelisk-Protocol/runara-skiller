@@ -181,6 +181,93 @@ router.post('/add-experience', async (req: any, res: any) => {
   }
 });
 
+// POST /api/skills/add-experience-batch - Add experience for multiple skills at once (called by chunk server XP batcher)
+router.post('/add-experience-batch', async (req: any, res: any) => {
+  try {
+    const schema = z.object({
+      playerPDA: z.string().min(32).max(44),
+      skills: z.array(z.object({
+        skill: z.enum([
+          'attack', 'strength', 'defense', 'magic', 'projectiles', 'vitality',
+          'mining', 'woodcutting', 'fishing', 'hunting',
+          'smithing', 'crafting', 'cooking', 'alchemy', 'construction', 'luck'
+        ]),
+        experienceGain: z.number().min(1).max(1000000),
+      })).min(1),
+      source: z.string().optional(),
+      sessionId: z.string().optional(),
+      gameMode: z.string().optional(),
+      additionalData: z.any().optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: 'Validation error', details: parsed.error.flatten() });
+    }
+    const { playerPDA, skills, source, sessionId, gameMode, additionalData } = parsed.data;
+
+    console.log(`📈 [Skills] Batch XP update for ${playerPDA}: ${skills.length} skill(s)`);
+
+    // Resolve assetId from playerPDA (same pattern as /add-experience)
+    let assetId: string | null = null;
+    let actualPlayerPDA = playerPDA;
+    try {
+      let profileResult = await pgQuerySingle<any>(
+        'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot, player_pda FROM profiles WHERE player_pda = $1',
+        [playerPDA]
+      );
+      let profile = profileResult.data;
+
+      if (!profile) {
+        const altResult = await pgQuerySingle<any>(
+          'SELECT character_cnft_1, character_cnft_2, character_cnft_3, character_cnft_4, character_cnft_5, active_character_slot, player_pda FROM profiles WHERE id = $1',
+          [playerPDA]
+        );
+        profile = altResult.data as any;
+      }
+
+      if (profile?.active_character_slot) {
+        assetId = profile[`character_cnft_${profile.active_character_slot}`] || null;
+        actualPlayerPDA = profile.player_pda || playerPDA;
+      }
+    } catch (lookupErr) {
+      console.error('❌ [Skills] Profile lookup error (batch):', lookupErr);
+    }
+
+    if (!assetId) {
+      console.warn(`⚠️ [Skills] No assetId found for batch playerPDA: ${playerPDA}`);
+      return res.status(404).json({ success: false, error: 'No active character found for player' });
+    }
+
+    // Apply XP for each skill
+    const results: Array<{ skill: string; experienceGain: number; level?: number; leveledUp?: boolean; success: boolean; error?: string }> = [];
+    for (const { skill, experienceGain } of skills) {
+      try {
+        const result = await addSkillXp(assetId, skill as any, experienceGain, {
+          playerPDA: actualPlayerPDA,
+          source,
+          sessionId,
+          gameMode,
+          additionalData,
+        });
+        console.log(`✅ [Skills] Batch XP applied — ${skill} +${experienceGain} for ${assetId}. Level: ${result.level}, LeveledUp: ${result.leveledUp}`);
+        results.push({ skill, experienceGain, level: result.level, leveledUp: result.leveledUp, success: true });
+      } catch (skillErr) {
+        console.error(`❌ [Skills] Batch XP failed for skill ${skill}:`, skillErr);
+        results.push({ skill, experienceGain, success: false, error: String(skillErr) });
+      }
+    }
+
+    return res.json({ success: true, results });
+  } catch (error) {
+    console.error('❌ Error in add-experience-batch:', error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ success: false, error: 'Validation error', details: error.errors });
+    }
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // POST /api/skills/mark-synced - Mark skills as synced to blockchain
 router.post('/mark-synced', async (req: any, res: any) => {
   try {

@@ -112,6 +112,27 @@ export async function ensureNftTable(): Promise<void> {
           }
         }
         
+        // Load biome migrations if they exist (biome_layer, biome_polygon_shapes)
+        const biomeMigrationFiles = [
+          '20250218000000_add_biome_layer.sql',
+          '20250219000000_add_biome_polygon_shapes.sql',
+        ];
+        const biomeMigrationSQLs: string[] = [];
+        for (const filename of biomeMigrationFiles) {
+          const biomePaths = [
+            path.join(__dirname, '../../migrations', filename),
+            path.join(process.cwd(), 'migrations', filename),
+            path.join(process.cwd(), 'obelisk-skiller/migrations', filename),
+          ];
+          for (const testPath of biomePaths) {
+            if (fs.existsSync(testPath)) {
+              biomeMigrationSQLs.push(fs.readFileSync(testPath, 'utf-8'));
+              console.log(`📝 Loading biome migration: ${filename}`);
+              break;
+            }
+          }
+        }
+        
         // Use a transaction for atomicity
         await client.query('BEGIN');
         await client.query(migrationSQL);
@@ -120,6 +141,9 @@ export async function ensureNftTable(): Promise<void> {
         }
         if (polygonCollisionMigrationSQL) {
           await client.query(polygonCollisionMigrationSQL);
+        }
+        for (const sql of biomeMigrationSQLs) {
+          await client.query(sql);
         }
         await client.query('COMMIT');
         

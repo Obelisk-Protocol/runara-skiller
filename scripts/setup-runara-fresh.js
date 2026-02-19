@@ -1,6 +1,6 @@
 /**
  * Runara fresh setup: mint new collection NFT + create new merkle tree.
- * Use this when starting completely fresh for the Runara rebrand (no old Obelisk Paradox NFTs).
+ * Use this when starting completely fresh for the Runara rebrand (clean install with no legacy migration).
  *
  * Usage:
  *   node scripts/setup-runara-fresh.js                # dry-run both steps

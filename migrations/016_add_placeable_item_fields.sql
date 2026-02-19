@@ -29,5 +29,5 @@ CREATE INDEX IF NOT EXISTS idx_item_definitions_placeable_category
 -- Comments
 COMMENT ON COLUMN item_definitions.is_placeable IS 'If true, this item can be placed in the world by players';
 COMMENT ON COLUMN item_definitions.placeable_category IS 'Category for UI filtering: building, crafting, decoration, storage, furniture, structure';
-COMMENT ON COLUMN item_definitions.placement_metadata IS 'Placement-specific metadata: snap_to_grid, grid_size, rotation_increments, placement_rules, etc.';
+COMMENT ON COLUMN item_definitions.placement_metadata IS 'Placement-specific metadata: snap_to_grid, grid_size, rotation_increments, placement_rules, walkable_overlay (bridge|road|constructed for tiles covered by structure to become walkable over water), etc.';
 
