@@ -340,6 +340,105 @@ router.post('/wallet-signin', async (req: any, res: any) => {
 });
 
 /**
+ * POST /api/auth/verify-admin-password
+ * Verify admin password to unlock the login page. Does NOT sign in - just returns success.
+ */
+const VerifyAdminSchema = z.object({
+  password: z.string().min(1),
+});
+
+router.post('/verify-admin-password', async (req: any, res: any) => {
+  const adminPassword = process.env.WAITLIST_ADMIN_PASSWORD;
+  if (!adminPassword) {
+    return res.status(503).json({ error: 'Admin bypass not configured' });
+  }
+
+  try {
+    const { password } = VerifyAdminSchema.parse(req.body);
+    if (password !== adminPassword) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+    return res.json({ success: true });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    return res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+/**
+ * POST /api/auth/admin-bypass
+ * Allow admin to bypass waitlist with password. Returns JWT for admin user.
+ * Set WAITLIST_ADMIN_PASSWORD in env. Creates runara_admin user if needed.
+ */
+const AdminBypassSchema = z.object({
+  password: z.string().min(1),
+});
+
+router.post('/admin-bypass', async (req: any, res: any) => {
+  const adminPassword = process.env.WAITLIST_ADMIN_PASSWORD;
+  if (!adminPassword) {
+    return res.status(503).json({ error: 'Admin bypass not configured' });
+  }
+
+  try {
+    const { password } = AdminBypassSchema.parse(req.body);
+    if (password !== adminPassword) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+
+    const client = getPgClient();
+    await client.connect();
+
+    try {
+      const adminUsername = 'runara_admin';
+      let userResult = await client.query(
+        'SELECT id, username FROM users WHERE username = $1',
+        [adminUsername]
+      );
+
+      let userId: string;
+      if (userResult.rows.length === 0) {
+        const insertResult = await client.query(
+          `INSERT INTO users (username, email, created_at, updated_at)
+           VALUES ($1, $2, NOW(), NOW())
+           RETURNING id, username`,
+          [adminUsername, 'admin@runara.game']
+        );
+        userId = insertResult.rows[0].id;
+
+        await client.query(
+          `INSERT INTO profiles (id, username, user_type, created_at, updated_at)
+           VALUES ($1, $2, 'WEB2', NOW(), NOW())
+           ON CONFLICT (id) DO NOTHING`,
+          [userId, adminUsername]
+        );
+      } else {
+        userId = userResult.rows[0].id;
+      }
+
+      const token = generateToken(userId, adminUsername);
+
+      return res.json({
+        success: true,
+        token,
+        user: { id: userId, username: adminUsername, email: 'admin@runara.game' },
+        profile: { id: userId, username: adminUsername },
+      });
+    } finally {
+      await client.end();
+    }
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    console.error('Admin bypass error:', error);
+    return res.status(500).json({ error: 'Admin bypass failed' });
+  }
+});
+
+/**
  * POST /api/auth/signout
  * Sign out user (client-side token removal, but we log it)
  */

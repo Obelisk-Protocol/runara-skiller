@@ -112,6 +112,36 @@ export async function ensureNftTable(): Promise<void> {
           }
         }
         
+        // Load waitlist migration if it exists
+        const waitlistMigrationPaths = [
+          path.join(__dirname, '../../migrations/20250220000000_add_waitlist_table.sql'),
+          path.join(process.cwd(), 'migrations/20250220000000_add_waitlist_table.sql'),
+          path.join(process.cwd(), 'obelisk-skiller/migrations/20250220000000_add_waitlist_table.sql'),
+        ];
+        let waitlistMigrationSQL: string | null = null;
+        for (const testPath of waitlistMigrationPaths) {
+          if (fs.existsSync(testPath)) {
+            waitlistMigrationSQL = fs.readFileSync(testPath, 'utf-8');
+            console.log(`📝 Loading waitlist migration...`);
+            break;
+          }
+        }
+
+        // Load referral codes migration if it exists
+        const referralMigrationPaths = [
+          path.join(__dirname, '../../migrations/20250221000000_add_referral_codes.sql'),
+          path.join(process.cwd(), 'migrations/20250221000000_add_referral_codes.sql'),
+          path.join(process.cwd(), 'obelisk-skiller/migrations/20250221000000_add_referral_codes.sql'),
+        ];
+        let referralMigrationSQL: string | null = null;
+        for (const testPath of referralMigrationPaths) {
+          if (fs.existsSync(testPath)) {
+            referralMigrationSQL = fs.readFileSync(testPath, 'utf-8');
+            console.log(`📝 Loading referral codes migration...`);
+            break;
+          }
+        }
+
         // Load biome migrations if they exist (biome_layer, biome_polygon_shapes)
         const biomeMigrationFiles = [
           '20250218000000_add_biome_layer.sql',
@@ -141,6 +171,12 @@ export async function ensureNftTable(): Promise<void> {
         }
         if (polygonCollisionMigrationSQL) {
           await client.query(polygonCollisionMigrationSQL);
+        }
+        if (waitlistMigrationSQL) {
+          await client.query(waitlistMigrationSQL);
+        }
+        if (referralMigrationSQL) {
+          await client.query(referralMigrationSQL);
         }
         for (const sql of biomeMigrationSQLs) {
           await client.query(sql);
