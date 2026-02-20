@@ -212,7 +212,7 @@ export class PlayerStructureService {
    */
   static async updateStructure(
     id: string,
-    updates: Partial<Pick<PlayerStructure, 'health' | 'max_health' | 'properties'>>
+    updates: Partial<Pick<PlayerStructure, 'rotation' | 'scale' | 'health' | 'max_health' | 'properties'>>
   ): Promise<PlayerStructure> {
     const updateKeys = Object.keys(updates).filter(key => updates[key as keyof typeof updates] !== undefined);
     const updateValues = updateKeys.map(key => {
@@ -304,6 +304,7 @@ export class PlayerStructureService {
         // Include structure metadata
         image: itemDef.ground_sprite_url || itemDef.icon_url || itemDef.image_url,
         structureId: structure.id,
+        placement_metadata: itemDef.placement_metadata || null,
         structureType: structure.structure_type,
         health: structure.health,
         maxHealth: structure.max_health,

@@ -28,6 +28,8 @@ const DestroyStructureSchema = z.object({
 })
 
 const UpdateStructureSchema = z.object({
+  rotation: z.number().min(0).max(360).optional(),
+  scale: z.number().min(0.1).max(5).optional(),
   health: z.number().int().min(0).optional(),
   max_health: z.number().int().min(1).optional(),
   properties: z.record(z.any()).optional()

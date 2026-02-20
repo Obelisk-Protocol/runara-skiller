@@ -6,6 +6,13 @@ import { ItemService } from '../services/item'
 
 const router = Router()
 
+// URL field: accept empty string as null, valid URL, or any non-empty path string
+const urlOrPathField = z
+  .union([z.string().url(), z.string().min(1), z.literal('')])
+  .optional()
+  .nullable()
+  .transform((v) => (v === '' || v === undefined ? null : v))
+
 // Validation schemas
 const CreateItemSchema = z.object({
   item_id: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Item ID must be lowercase alphanumeric with hyphens/underscores'),
@@ -14,19 +21,19 @@ const CreateItemSchema = z.object({
   item_type: z.enum(['material', 'equipment', 'consumable']),
   rarity: z.enum(['common', 'uncommon', 'rare', 'epic', 'legendary']),
   base_properties: z.record(z.any()),
-  image_url: z.string().url().optional().nullable(),
-  animation_url: z.string().url().optional().nullable(),
-  icon_url: z.string().url().optional().nullable(),
-  ground_sprite_url: z.string().url().optional().nullable(),
-  in_use_sprite_url: z.string().url().optional().nullable(),
+  image_url: urlOrPathField,
+  animation_url: urlOrPathField,
+  icon_url: urlOrPathField,
+  ground_sprite_url: urlOrPathField,
+  in_use_sprite_url: urlOrPathField,
   in_use_animation_config: z.record(z.any()).optional().nullable(),
   craft_recipe: z.record(z.any()).optional().nullable(),
   max_floor_level: z.number().int().positive().optional().nullable(),
-  base_drop_rate: z.number().min(0).max(1).default(0.0001),
+  base_drop_rate: z.coerce.number().min(0).max(1).default(0.0001),
   is_craftable: z.boolean().default(false),
-  max_stack_size: z.number().int().positive().default(1),
-  min_floor_level: z.number().int().positive().default(1),
-  mint_cost_cobx: z.number().int().min(0).default(0),
+  max_stack_size: z.coerce.number().int().positive().default(1),
+  min_floor_level: z.coerce.number().int().positive().default(1),
+  mint_cost_cobx: z.coerce.number().int().min(0).default(0),
   is_active: z.boolean().default(true),
   // Placeable item fields
   is_placeable: z.boolean().default(false).optional(),
@@ -125,9 +132,10 @@ router.post('/', async (req: any, res: any) => {
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
+      const messages = error.errors.map((e) => `${e.path.join('.')}: ${e.message}`)
       return res.status(400).json({
         success: false,
-        error: 'Validation error',
+        error: messages.length > 0 ? messages.join('; ') : 'Validation error',
         details: error.errors
       })
     }
@@ -168,9 +176,10 @@ router.put('/:itemId', async (req: any, res: any) => {
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
+      const messages = error.errors.map((e) => `${e.path.join('.')}: ${e.message}`)
       return res.status(400).json({
         success: false,
-        error: 'Validation error',
+        error: messages.length > 0 ? messages.join('; ') : 'Validation error',
         details: error.errors
       })
     }
