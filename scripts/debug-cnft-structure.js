@@ -1,3 +1,4 @@
+require('dotenv').config();
 const fs = require('fs');
 
 // Load the cNFTs list
@@ -8,7 +9,8 @@ async function debugCNFTStructure(assetId, name) {
     console.log(`\n🔍 Debugging cNFT structure for ${name} (${assetId})...`);
     
     // Get the cNFT data
-    const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797`, {
+    const rpcUrl = process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET;
+    const response = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

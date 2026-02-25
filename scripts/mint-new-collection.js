@@ -1,7 +1,7 @@
 /**
  * Mint a new Collection NFT for Runara character cNFTs.
  * 
- * Uses PRIVATE_SERVER_WALLET from the environment (or hardcoded below).
+ * Uses PRIVATE_SERVER_WALLET from the environment.
  * Creates a proper Metaplex NFT with metadata + master edition.
  * 
  * Usage:
@@ -24,31 +24,37 @@ const {
 const { Connection, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
 // ── Configuration ──
-const RPC_URL = 'https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797';
-const PRIVATE_SERVER_WALLET = [100,48,215,186,81,201,3,197,22,124,134,3,88,142,244,120,207,127,8,102,18,205,159,198,14,138,0,61,70,151,0,102,4,190,179,234,174,99,235,10,191,113,254,205,97,135,16,8,193,69,17,196,162,7,61,166,204,15,165,219,221,251,44,74];
+require('dotenv').config();
+const RPC_URL = process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET || process.env.MAINNET_RPC_URL;
+const PRIVATE_SERVER_WALLET_JSON = process.env.PRIVATE_SERVER_WALLET || process.env.SERVER_WALLET_KEY;
+
+if (!RPC_URL || !PRIVATE_SERVER_WALLET_JSON) {
+  console.error('Set SOLANA_RPC_URL and PRIVATE_SERVER_WALLET in .env');
+  process.exit(1);
+}
+
+const PRIVATE_SERVER_WALLET = JSON.parse(PRIVATE_SERVER_WALLET_JSON);
 
 (async () => {
   try {
-    // 1. Check balance first
+    // 1. Set up UMI and check balance
     const connection = new Connection(RPC_URL, 'confirmed');
-    const serverPubkey = new PublicKey('KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV');
-    const balance = await connection.getBalance(serverPubkey);
-    console.log(`💰 Server wallet balance: ${balance / LAMPORTS_PER_SOL} SOL`);
-    
-    if (balance < 0.01 * LAMPORTS_PER_SOL) {
-      console.error(`❌ Insufficient balance. Need at least 0.01 SOL, have ${balance / LAMPORTS_PER_SOL} SOL`);
-      console.error(`   Send SOL to: KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV`);
-      process.exit(1);
-    }
-
-    // 2. Set up UMI
-    const umi = createUmi(RPC_URL);
-    umi.use(mplTokenMetadata());
-
+    const umi = createUmi(RPC_URL).use(mplTokenMetadata());
     const umiKeypair = umi.eddsa.createKeypairFromSecretKey(Uint8Array.from(PRIVATE_SERVER_WALLET));
     const signer = createSignerFromKeypair(umi, umiKeypair);
     umi.use(signerIdentity(signer));
 
+    const serverPubkey = signer.publicKey;
+    const balance = await connection.getBalance(serverPubkey);
+    console.log(`💰 Server wallet balance: ${balance / LAMPORTS_PER_SOL} SOL`);
+
+    if (balance < 0.01 * LAMPORTS_PER_SOL) {
+      console.error(`❌ Insufficient balance. Need at least 0.01 SOL, have ${balance / LAMPORTS_PER_SOL} SOL`);
+      console.error(`   Send SOL to: ${serverPubkey}`);
+      process.exit(1);
+    }
+
+    // 2. Create collection NFT
     console.log(`🔑 Server wallet: ${signer.publicKey}`);
     console.log(`🌐 RPC: ${RPC_URL}`);
     console.log('');

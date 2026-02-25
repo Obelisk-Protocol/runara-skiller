@@ -102,10 +102,10 @@ Before deploying to production:
 - `obelisk-skiller/src/services/offchain-program/*`
 
 ### Frontend
-- `ObeliskParadox/src/components/auth/auth-provider.tsx`
-- `ObeliskParadox/src/hooks/use-cobx.ts`
-- `ObeliskParadox/src/components/character-selector/CharacterSelector.tsx`
-- `ObeliskParadox/src/game/scenes/CharacterSlotsScene.ts`
+- `runara/src/components/auth/auth-provider.tsx`
+- `runara/src/hooks/use-cobx.ts`
+- `runara/src/components/character-selector/CharacterSelector.tsx`
+- `runara/src/game/scenes/CharacterSlotsScene.ts`
 
 ## ⚠️ Notes
 

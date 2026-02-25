@@ -1,6 +1,7 @@
+require('dotenv').config();
 const https = require('https');
 
-// Your collection address
+// Your collection address (or set CNFT_COLLECTION_ADDRESS in .env)
 const COLLECTION_ADDRESS = 'DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE';
 
 async function fetchCollectionCNFTs() {
@@ -8,7 +9,7 @@ async function fetchCollectionCNFTs() {
     console.log('🔍 Fetching cNFTs from collection using direct DAS API...');
     
     // Use Helius DAS API directly
-    const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797';
+    const rpcUrl = process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET;
     const response = await fetch(rpcUrl, {
       method: 'POST',
       headers: {

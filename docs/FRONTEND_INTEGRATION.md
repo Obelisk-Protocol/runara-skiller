@@ -2,7 +2,7 @@
 
 ## Overview
 
-The frontend (`ObeliskParadox`) needs to be updated to use the new off-chain backend services instead of the old Anchor program-based routes.
+The frontend (`runara`) needs to be updated to use the new off-chain backend services instead of the old Anchor program-based routes.
 
 ## New Backend Endpoints
 
@@ -82,7 +82,7 @@ Response: {
 
 ### 1. Update Player Initialization
 
-**File:** `ObeliskParadox/src/components/auth/auth-provider.tsx`
+**File:** `runara/src/components/auth/auth-provider.tsx`
 
 Change:
 ```typescript
@@ -109,7 +109,7 @@ const response = await fetch(`${backendUrl}/api/players/initialize-web2-offchain
 
 ### 2. Update cOBX Balance Hook
 
-**File:** `ObeliskParadox/src/hooks/use-cobx.ts`
+**File:** `runara/src/hooks/use-cobx.ts`
 
 Change balance fetch to use off-chain endpoint:
 ```typescript
@@ -123,13 +123,13 @@ const response = await fetch(`${backendUrl}/api/cobx/balance-offchain`, { ... })
 ### 3. Remove PDA Dependencies
 
 **Files to update:**
-- `ObeliskParadox/src/hooks/use-cobx.ts` - Remove PDA checks
-- `ObeliskParadox/src/components/auth/auth-provider.tsx` - Remove PDA initialization checks
-- `ObeliskParadox/src/hooks/use-player-cnft.ts` - Update to use new endpoints
+- `runara/src/hooks/use-cobx.ts` - Remove PDA checks
+- `runara/src/components/auth/auth-provider.tsx` - Remove PDA initialization checks
+- `runara/src/hooks/use-player-cnft.ts` - Update to use new endpoints
 
 ### 4. Update Profile Fetching
 
-**File:** `ObeliskParadox/src/lib/backend-api.ts`
+**File:** `runara/src/lib/backend-api.ts`
 
 The existing `fetchProfile` should work, but ensure it doesn't require `player_pda` for new players.
 

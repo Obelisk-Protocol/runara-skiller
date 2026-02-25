@@ -27,9 +27,17 @@ const {
 const { Connection, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
 // ── Configuration ──
-const RPC_URL = 'https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797';
-const PRIVATE_SERVER_WALLET = [100,48,215,186,81,201,3,197,22,124,134,3,88,142,244,120,207,127,8,102,18,205,159,198,14,138,0,61,70,151,0,102,4,190,179,234,174,99,235,10,191,113,254,205,97,135,16,8,193,69,17,196,162,7,61,166,204,15,165,219,221,251,44,74];
-const COLLECTION_MINT = '7obTWkfujXNPnqjwrXZYkun4DUiAYox5T4i1ZQ6PQQ9Q';
+require('dotenv').config();
+const RPC_URL = process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET || process.env.MAINNET_RPC_URL;
+const PRIVATE_SERVER_WALLET_JSON = process.env.PRIVATE_SERVER_WALLET || process.env.SERVER_WALLET_KEY;
+const COLLECTION_MINT = process.env.COLLECTION_MINT_MAINNET || process.env.CNFT_COLLECTION_ADDRESS;
+
+if (!RPC_URL || !PRIVATE_SERVER_WALLET_JSON || !COLLECTION_MINT) {
+  console.error('Set SOLANA_RPC_URL, PRIVATE_SERVER_WALLET, and COLLECTION_MINT_MAINNET in .env');
+  process.exit(1);
+}
+
+const PRIVATE_SERVER_WALLET = JSON.parse(PRIVATE_SERVER_WALLET_JSON);
 
 // New values
 const NEW_NAME = 'Runara \u2014 Characters';
@@ -41,19 +49,16 @@ const NEW_URI = 'https://runara.fun/collection.json';
   try {
     console.log(`\n=== Update Collection NFT Metadata ${dryRun ? '(DRY RUN)' : ''} ===\n`);
 
-    // 1. Check balance
+    // 1. Set up UMI and check balance
     const connection = new Connection(RPC_URL, 'confirmed');
-    const serverPubkey = new PublicKey('KXHnFbyda9vYLU4iqastL6cahbAoua1qdCvrJ9kAuYV');
-    const balance = await connection.getBalance(serverPubkey);
-    console.log(`Server wallet balance: ${balance / LAMPORTS_PER_SOL} SOL`);
-
-    // 2. Set up UMI
-    const umi = createUmi(RPC_URL);
-    umi.use(mplTokenMetadata());
-
+    const umi = createUmi(RPC_URL).use(mplTokenMetadata());
     const umiKeypair = umi.eddsa.createKeypairFromSecretKey(Uint8Array.from(PRIVATE_SERVER_WALLET));
     const signer = createSignerFromKeypair(umi, umiKeypair);
     umi.use(signerIdentity(signer));
+
+    const serverPubkey = signer.publicKey;
+    const balance = await connection.getBalance(serverPubkey);
+    console.log(`Server wallet balance: ${balance / LAMPORTS_PER_SOL} SOL`);
 
     console.log(`Server wallet: ${signer.publicKey}`);
     console.log(`Collection mint: ${COLLECTION_MINT}`);

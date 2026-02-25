@@ -16,8 +16,11 @@ const path = require('path');
 
 // Configuration
 const SOLANA_CLUSTER = process.env.SOLANA_CLUSTER || 'mainnet-beta';
-// Hardcoded RPC endpoint for mainnet
-const RPC_ENDPOINT = 'https://mainnet.helius-rpc.com/?api-key=fe7d2d';
+const RPC_ENDPOINT = process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET || process.env.MAINNET_RPC_URL;
+if (!RPC_ENDPOINT) {
+  console.error('Set SOLANA_RPC_URL, DAS_RPC_URL_MAINNET, or MAINNET_RPC_URL in .env');
+  process.exit(1);
+}
 
 // Hardcoded collection mint - no environment variable needed
 const COLLECTION_MINT = 'DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE';

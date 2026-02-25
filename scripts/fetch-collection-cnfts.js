@@ -1,15 +1,22 @@
+require('dotenv').config();
 const { createUmi } = require('@metaplex-foundation/umi-bundle-defaults');
 const { createHeliusRpc } = require('@metaplex-foundation/umi-rpc-helius');
 const { DAS } = require('@metaplex-foundation/digital-asset-standard-api');
 
-// Your collection address
-const COLLECTION_ADDRESS = 'DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE';
+// Your collection address (set via CNFT_COLLECTION_ADDRESS env var or replace)
+const COLLECTION_ADDRESS = process.env.CNFT_COLLECTION_ADDRESS || process.env.COLLECTION_MINT_MAINNET || 'DQWoNLwaqFoxJPiMxnzDEaiJZoCWZ5uBzzN4uUk9XvrE';
+
+const rpcUrl = process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET || process.env.MAINNET_RPC_URL;
+if (!rpcUrl) {
+  console.error('Set SOLANA_RPC_URL, DAS_RPC_URL_MAINNET, or MAINNET_RPC_URL in .env');
+  process.exit(1);
+}
 
 async function fetchCollectionCNFTs() {
   try {
     // Create UMI instance
-    const umi = createUmi('https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797')
-      .use(createHeliusRpc('https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797'))
+    const umi = createUmi(rpcUrl)
+      .use(createHeliusRpc(rpcUrl))
       .use(DAS());
 
     console.log('🔍 Fetching cNFTs from collection...');

@@ -48,5 +48,11 @@ jspm_packages/
 # Optional eslint cache
 .eslintcache
 
+# Environment (contain secrets - never commit)
+.env
+.env.local
+.env.*.local
+MAINNET/
+
 # Railway
 .railway/

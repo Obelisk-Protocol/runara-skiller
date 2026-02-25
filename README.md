@@ -58,7 +58,7 @@ TypeScript backend service for Runara character and skill management on Solana b
 
 1. **Clone and install dependencies**:
    ```bash
-   cd obelisk-skiller
+   cd skiller
    npm install
    ```
 
@@ -67,18 +67,16 @@ TypeScript backend service for Runara character and skill management on Solana b
    cp env.example .env
    ```
 
-3. **Configure environment variables**:
+3. **Configure environment variables** (see `env.example` for full list):
    ```env
-   # Supabase Configuration
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   # Database (PostgreSQL - Supabase, Railway, or self-hosted)
+   SKILLER_DATABASE_URL=postgresql://user:password@host:port/database
    
-   # Solana Configuration  
-   SOLANA_RPC_URL=https://api.devnet.solana.com
-   SOLANA_PRIVATE_KEY=[1,2,3,4,5,...] # JSON array format
+   # Solana (use Helius, QuickNode, etc. - get your own API key)
+   SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
+   PRIVATE_SERVER_WALLET=[1,2,3,4,5,...] # JSON array - NEVER commit
    
-   # Backend Configuration
-   BACKEND_URL=http://localhost:3000
+   # Backend
    PORT=3000
    NODE_ENV=development
    ```

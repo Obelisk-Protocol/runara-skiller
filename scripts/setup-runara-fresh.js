@@ -33,8 +33,13 @@ if (fs.existsSync(envPath)) {
   console.log('Loaded .env from:', envPath);
 }
 
-const RPC_URL = process.env.MAINNET_RPC_URL || process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET || 'https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797';
+const RPC_URL = process.env.MAINNET_RPC_URL || process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET || process.env.HELIUS_RPC_URL;
 const PRIVATE_KEY = process.env.PRIVATE_SERVER_WALLET || process.env.SERVER_WALLET_KEY;
+
+if (!RPC_URL) {
+  console.error('Set SOLANA_RPC_URL, DAS_RPC_URL_MAINNET, or MAINNET_RPC_URL in .env');
+  process.exit(1);
+}
 const confirm = process.argv.includes('--confirm');
 const writeEnv = process.argv.includes('--write-env');
 

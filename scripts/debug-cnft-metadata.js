@@ -6,7 +6,8 @@
 
 require('dotenv').config();
 
-const RPC_ENDPOINT = 'https://mainnet.helius-rpc.com/?api-key=fe7d2dc0-06de-42b1-b947-0db7c3003797';
+require('dotenv').config();
+const RPC_ENDPOINT = process.env.SOLANA_RPC_URL || process.env.DAS_RPC_URL_MAINNET;
 
 async function debugCNFTMetadata(assetId) {
   try {
