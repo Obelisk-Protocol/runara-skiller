@@ -77,10 +77,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/obelisk-skiller.git"
+    "url": "https://github.com/Obelisk-Protocol/runara-skiller.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/obelisk-skiller/issues"
+    "url": "https://github.com/Obelisk-Protocol/runara-skiller/issues"
   },
-  "homepage": "https://github.com/your-org/obelisk-skiller#readme"
+  "homepage": "https://github.com/Obelisk-Protocol/runara-skiller#readme"
 }

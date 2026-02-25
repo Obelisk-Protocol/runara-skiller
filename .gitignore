@@ -54,5 +54,12 @@ jspm_packages/
 .env.*.local
 MAINNET/
 
+# Debug / export artifacts
+db.txt
+db.json
+update-results.json
+runara-env.txt
+test-output/
+
 # Railway
 .railway/

@@ -1,286 +1,294 @@
-# Obelisk Skiller Backend
+<div align="center">
 
-TypeScript backend service for Runara character and skill management on Solana blockchain.
+# ⚔️ Runara Skiller
 
-## 🚀 Features
+**The backend powering Runara — a Solana-native RPG with RuneScape-inspired skills, compressed NFTs, and a hybrid on-chain/off-chain economy.**
 
-- **Character cNFT Management**: Create, update, and fetch character cNFTs using Metaplex Bubblegum
-- **Skill Experience Tracking**: Database-backed skill progression system  
-- **Metaplex Standard Compliance**: Full marketplace compatibility with standard metadata format
-- **Real-time Database**: Supabase integration for fast skill updates
-- **Production Ready**: Built for Railway deployment with Docker
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
+[![Solana](https://img.shields.io/badge/Solana-Mainnet-9945FF)](https://solana.com/)
+[![Metaplex](https://img.shields.io/badge/Metaplex-Bubblegum-5C3EFE)](https://www.metaplex.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+*RuneScape-style skill progression • Compressed NFTs • Token-2022 • Zero-friction onboarding*
+
+</div>
+
+---
+
+## 🎯 What Is This?
+
+**Runara Skiller** is the game backend for [Runara](https://runara.fun) — a hack-and-slash dungeon crawler built on Solana. It handles everything from character cNFT minting and skill XP tracking to crafting, inventory, marketplace listings, and a hybrid economy that lets players **start playing instantly** (no wallet required) while preserving full blockchain ownership when they're ready.
+
+### Why It's Different
+
+| Problem | Our Solution |
+|--------|--------------|
+| **Wallet fatigue** | Web2 signup → instant play. Link wallet when ready. |
+| **Gas for everything** | Off-chain state + batched on-chain sync. Blockchain only when it matters. |
+| **cNFT metadata bloat** | 16 skills, combat level, total level — all in standard Metaplex metadata. |
+| **Fragmented XP systems** | OSRS-style curves, idempotency, server-authoritative. No client trust. |
+| **Complex onboarding** | One backend. One DB. One API. |
+
+---
 
 ## 🏗️ Architecture
 
-### Services
-- **cNFT Service** (`src/services/cnft.ts`): Blockchain operations for character cNFTs
-- **Character Service** (`src/services/character.ts`): High-level character management
-- **Database Service** (`src/services/database.ts`): Supabase operations and skill tracking
-- **Metadata Store**: In-memory storage for character metadata URIs
-
-### API Endpoints
-
-#### Characters (`/api/characters`)
-- `POST /` - Create new character
-- `GET /:assetId` - Get character by cNFT ID
-- `GET /player/:playerId` - Get all characters for player
-- `POST /train-skill` - Train a specific skill (+1 level)
-- `POST /level-up-stat` - Level up primary stat
-- `POST /update-metadata` - Update cNFT metadata
-- `POST /sync/:assetId` - Sync character from cNFT to database
-
-#### Skills (`/api/skills`)
-- `GET /:playerPDA` - Get player skill experience
-- `POST /add-experience` - Add experience to skill
-- `POST /mark-synced` - Mark skills as synced to blockchain
-- `GET /leaderboard/:skill` - Get skill leaderboard
-- `GET /rankings/total-level` - Get total level rankings
-
-#### cNFT (`/api/cnft`)
-- `GET /player-metadata/:id` - Serve character metadata (NFT standard)
-- `POST /player-metadata/:id` - Store character metadata
-- `POST /fetch-player-cnfts-simple` - Fetch player cNFTs (compatibility)
-- `POST /update-cnft-metadata` - Update cNFT metadata (compatibility)
-
-#### Health (`/health`)
-- `GET /` - Basic health check
-- `GET /deep` - Deep health check with service status
-
-## 🛠️ Setup
-
-### Prerequisites
-- Node.js 18+
-- Supabase project with migrations applied
-- Solana wallet with devnet SOL
-- Railway account (for deployment)
-
-### Local Development
-
-1. **Clone and install dependencies**:
-   ```bash
-   cd skiller
-   npm install
-   ```
-
-2. **Copy environment variables**:
-   ```bash
-   cp env.example .env
-   ```
-
-3. **Configure environment variables** (see `env.example` for full list):
-   ```env
-   # Database (PostgreSQL - Supabase, Railway, or self-hosted)
-   SKILLER_DATABASE_URL=postgresql://user:password@host:port/database
-   
-   # Solana (use Helius, QuickNode, etc. - get your own API key)
-   SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
-   PRIVATE_SERVER_WALLET=[1,2,3,4,5,...] # JSON array - NEVER commit
-   
-   # Backend
-   PORT=3000
-   NODE_ENV=development
-   ```
-
-4. **Apply database migrations**:
-   ```sql
-   -- Run the SQL files in migrations/ folder in your Supabase SQL editor
-   -- 001_initial_schema.sql
-   -- 20250118000000_add_skill_tracking.sql
-   ```
-
-5. **Start development server**:
-   ```bash
-   npm run dev
-   ```
-
-6. **Test the service**:
-   ```bash
-   curl http://localhost:3000/health
-   ```
-
-## 🚀 Railway Deployment
-
-### 1. Prepare for Deployment
-
-The service is pre-configured for Railway with:
-- `Dockerfile` for containerized deployment
-- `railway.json` for Railway-specific configuration
-- Environment variable templates
-
-### 2. Deploy to Railway
-
-1. **Connect to Railway**:
-   ```bash
-   npm install -g @railway/cli
-   railway login
-   ```
-
-2. **Create new project**:
-   ```bash
-   railway init
-   railway link
-   ```
-
-3. **Set environment variables**:
-   ```bash
-   railway variables set SUPABASE_URL=https://your-project.supabase.co
-   railway variables set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-   railway variables set SOLANA_RPC_URL=https://api.devnet.solana.com
-   railway variables set SOLANA_PRIVATE_KEY='[1,2,3,4,5,...]'
-   railway variables set NODE_ENV=production
-   ```
-
-4. **Deploy**:
-   ```bash
-   railway up
-   ```
-
-5. **Get deployment URL**:
-   ```bash
-   railway domain
-   ```
-
-### 3. Update Environment Variables
-
-After deployment, update:
-- `BACKEND_URL` to your Railway domain
-- `CORS_ORIGIN` to your frontend domain
-
-## 📊 Database Schema
-
-The service uses the existing Supabase schema with these key tables:
-
-### `characters`
-Stores character data for fast access and backup:
-- `character_cnft_id`: cNFT asset address
-- `player_id`: UUID linking to user
-- Character stats, skills, and metadata
-
-### `player_skill_experience`  
-Tracks skill progression:
-- `player_pda`: Solana wallet address
-- XP and levels for each skill
-- Sync status with blockchain
-
-### `experience_logs`
-Audit trail for all XP gains:
-- Source tracking (dungeon, casino, etc.)
-- Session and game mode context
-
-## 🔧 Integration with Frontend
-
-### Replacing Frontend cNFT Operations
-
-The backend provides drop-in replacements for your frontend APIs:
-
-**Before (Frontend)**:
-```javascript
-fetch('/api/update-cnft-metadata', { ... })
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         RUNARA SKILLER (Express + PostgreSQL)                     │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
+│   │  Characters │  │   Skills    │  │   cOBX /    │  │   Crafting  │            │
+│   │  & cNFTs    │  │  (16 types) │  │   Offchain  │  │  & Items    │            │
+│   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘            │
+│          │                │                │                │                     │
+│          └────────────────┴────────────────┴────────────────┘                     │
+│                                    │                                              │
+│                          ┌─────────▼─────────┐                                    │
+│                          │    PostgreSQL     │  profiles, nfts, nft_skill_        │
+│                          │  (Railway/Supabase)  experience, player_items,         │
+│                          │                   │  player_structures, quests...      │
+│                          └─────────┬─────────┘                                    │
+│                                    │                                              │
+└────────────────────────────────────┼──────────────────────────────────────────────┘
+                                     │
+         ┌───────────────────────────┼───────────────────────────┐
+         │                           │                           │
+         ▼                           ▼                           ▼
+┌─────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+│ Solana Mainnet  │      │  Cloudflare R2      │      │   Tick Server /      │
+│ • Metaplex      │      │  • Character images │      │   Game Client        │
+│   Bubblegum     │      │  • Dynamic portraits│      │ • XP deltas          │
+│ • Token-2022    │      │                     │      │ • Action events      │
+│ • cOBX mint     │      │                     │      │                      │
+└─────────────────┘      └─────────────────────┘      └─────────────────────┘
 ```
 
-**After (Backend)**:
-```javascript
-fetch('https://your-backend.railway.app/api/cnft/update-cnft-metadata', { ... })
+### Design Principles
+
+1. **Database as source of truth** — All game logic, balances, and XP live in PostgreSQL. Blockchain is for ownership and withdrawals.
+2. **Off-chain first, on-chain when needed** — New players get instant accounts. Link wallet → withdraw cOBX, withdraw character cNFTs.
+3. **Server-authoritative** — XP, crafting, and rewards are validated server-side. Clients send actions; server decides outcomes.
+4. **Metaplex-compliant** — Character cNFTs use standard metadata. Listable on any Solana marketplace.
+
+---
+
+## ⚡ Features
+
+### 🎮 16 Skills (RuneScape-Inspired)
+
+| Combat | Gathering | Crafting | Special |
+|--------|-----------|----------|---------|
+| Attack | Mining | Smithing | Luck |
+| Strength | Woodcutting | Crafting | |
+| Defense | Fishing | Cooking | |
+| Magic | Hunting | Alchemy | |
+| Projectiles | | Construction | |
+| Vitality | | | |
+
+- **OSRS-style XP curve** — Levels 1–99 with authentic thresholds
+- **Per-character tracking** — Each cNFT has its own skill XP
+- **Action-based training** — `enemy_kill_basic` → attack XP, `woodcut_tree_medium` → woodcutting XP, etc.
+- **Idempotency** — `xp_award_events` table prevents duplicate XP from retries
+- **Background sync** — Level-ups queue on-chain metadata updates (configurable cooldown)
+
+### 🧙 Character cNFTs
+
+- **Metaplex Bubblegum** — Compressed NFTs for gas efficiency
+- **Metadata includes** — Name, combat level, total level, all 16 skill levels + XP
+- **Dynamic images** — Generated from customization + equipment (Sharp), stored in R2 or local fallback
+- **5 character slots** — Per player, mix of on-chain and off-chain
+- **Treasury storage** — Off-chain cNFTs held in server wallet until withdrawal
+- **Deposit / withdraw** — Move cNFTs between treasury and player wallet
+
+### 💰 Hybrid Economy
+
+| Mode | Balance | Characters | Withdrawal |
+|------|---------|------------|------------|
+| **Off-chain** | DB only | Treasury-held cNFTs | One-time setup |
+| **On-chain** | Token-2022 (cOBX) | Player wallet | Instant |
+
+- **cOBX** — In-game currency (Token-2022), minted as rewards
+- **OBX** — SPL token for deposits/withdrawals
+- **Mines minigame** — Bet cOBX, cash out
+
+### 🛠️ Crafting & Inventory
+
+- **Recipe-based crafting** — Consume ingredients → award items
+- **Item definitions** — Types, rarity, sprites, recipes in DB
+- **Player inventory** — Move, award, clear; links to `item_definitions`
+- **Player structures** — Place/remove structures in world chunks (x, y)
+
+### 🏪 Marketplace
+
+- List, buy, cancel cNFT listings
+- Integrates with Anchor program for on-chain settlement
+
+### 🔐 Auth & Profiles
+
+- **Email/password** — bcrypt + JWT
+- **Wallet sign-in** — Solana message signing
+- **Admin bypass** — For waitlist/gated access
+- **Profiles** — Character name, class, slots, customization
+
+### 📋 Other
+
+- **Quests** — CRUD for quest definitions
+- **Waitlist** — Join, check status, count
+- **Referral codes** — Track signups
+- **DAS integration** — Asset lookups via Helius
+
+---
+
+## 🛣️ How We Do Things
+
+### XP Flow
+
+```
+Game Client (Phaser)     →  Tick Server / Direct API  →  Runara Skiller
+   "enemy_kill_basic"         POST /api/characters/award-action     addSkillXp(assetId, 'attack', 25)
+   or raw XP                  POST /api/skills/add-experience       → nft_skill_experience
+                                                                     → experience_logs
+                                                                     → pending_onchain_update = true
+                                                                     
+Background worker (60s)  →  updateCharacterCNFT()  →  Metaplex metadata on-chain
+                             markAssetSynced()
 ```
 
-### Character Management Flow
+### Character Creation (Off-Chain)
 
-1. **Create Character**: `POST /api/characters`
-2. **Train Skills**: `POST /api/characters/train-skill`  
-3. **Save to Blockchain**: `POST /api/characters/update-metadata`
-4. **Fetch Characters**: `GET /api/characters/player/:playerId`
+1. `POST /api/players/initialize-web2-offchain` — Create profile, no PDA
+2. `POST /api/character-cnft-slots/mint-offchain` — Mint cNFT to treasury, assign to slot 1
+3. Player plays; XP accumulates in DB
+4. When ready: `POST /api/cnft/withdraw` — Transfer cNFT to player wallet
 
-### Metadata URI Integration
+### API Auth
 
-Characters automatically use backend metadata URIs:
+- **JWT** — For email/password and wallet sign-in
+- **x-api-key + x-xp-signature** — For tick server / trusted services (HMAC-SHA256)
+- **CORS** — Configurable allowed origins
+
+---
+
+## 🚀 Quick Start
+
+```bash
+git clone https://github.com/Obelisk-Protocol/runara-skiller.git
+cd runara-skiller
+npm install
+cp env.example .env
+# Edit .env: DATABASE_URL, SOLANA_RPC_URL, PRIVATE_SERVER_WALLET, etc.
+npm run dev
 ```
-https://your-backend.railway.app/api/cnft/player-metadata/{id}
+
+Apply migrations in order from `migrations/` (PostgreSQL). Key files:
+
+- `001_initial_schema.sql` — Base schema
+- `20250118000000_add_skill_tracking.sql` — Skill XP
+- `20250119000001_upgrade_existing_supabase_to_18_skills.sql` — 18-skill upgrade
+- `20250204_offchain_program_integration.sql` — Off-chain tables
+
+```bash
+curl http://localhost:8080/health
 ```
 
-This ensures marketplace compatibility and persistent character data.
+---
 
-## 📈 Monitoring
+## 📁 Project Structure
 
-### Health Checks
-- Basic: `GET /health`
-- Deep: `GET /health/deep`
+```
+skiller/
+├── src/
+│   ├── index.ts              # Express app, routes, XP sync worker
+│   ├── routes/               # API handlers (characters, skills, cobx, auth, ...)
+│   ├── services/             # Business logic
+│   │   ├── cnft.ts           # Metaplex Bubblegum, mint/update/burn
+│   │   ├── nft-skill-experience.ts  # XP math, nft_skill_experience
+│   │   ├── character.ts      # Stats, combat/total level
+│   │   ├── crafting.ts       # Recipe validation, consume, award
+│   │   ├── offchain-program/ # Off-chain player, tokens, cNFT storage
+│   │   └── ...
+│   ├── config/               # Solana, database, Bubblegum
+│   └── utils/                # xp-level (OSRS curve), pg-helper, auth
+├── migrations/               # SQL migrations
+├── scripts/                  # One-off scripts, test runners
+├── docs/                     # Architecture, deployment, frontend integration
+└── public/                   # Character sprites, static assets
+```
 
-### Logging
-All operations include structured logging:
-- Database operations
-- Blockchain transactions  
-- API requests and responses
-- Error tracking
+---
 
-### Metrics
-Track key metrics:
-- Character creation rate
-- Skill training frequency
-- cNFT update success rate
-- Database sync status
+## 📚 API Overview
 
-## 🔒 Security
+| Route | Purpose |
+|-------|---------|
+| `/health`, `/health/deep` | Health checks |
+| `/api/auth/*` | Signup, signin, wallet, admin bypass |
+| `/api/characters/*` | Create, train, award XP, generate images |
+| `/api/skills/*` | Get XP, add experience, batch, leaderboard |
+| `/api/cnft/*` | Metadata, mint, burn, deposit, withdraw |
+| `/api/character-cnft-slots/*` | Slots (on-chain + off-chain mint) |
+| `/api/cobx/*` | Balance, mint, reward, off-chain ops |
+| `/api/players/*` | Items, inventory, off-chain init |
+| `/api/craft/*` | Craft items |
+| `/api/items/*` | Item definitions, sprites |
+| `/api/player-structures/*` | Place structures in chunks |
+| `/api/marketplace/*` | List, buy, cancel |
+| `/api/quests/*` | Quest CRUD |
+| `/api/config/*` | Config init |
+| `/api/das/*` | DAS asset lookups |
 
-- Service role authentication for Supabase
-- Input validation with Zod schemas
-- CORS protection
-- Helmet middleware for security headers
-- Non-root Docker container
+See `docs/FRONTEND_INTEGRATION.md` for request/response examples.
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Tech |
+|-------|------|
+| Runtime | Node.js 18+ |
+| Language | TypeScript 5.9 |
+| Framework | Express |
+| Database | PostgreSQL (Railway, Supabase, or self-hosted) |
+| Blockchain | Solana, Metaplex (Bubblegum, Token Metadata), UMI |
+| Auth | bcrypt, JWT, TweetNaCl (wallet) |
+| Images | Sharp, Cloudflare R2 |
+| Validation | Zod |
+| Deployment | Railway, Docker |
+
+---
+
+## 📖 Documentation
+
+- **[docs/OFFCHAIN_ARCHITECTURE.md](docs/OFFCHAIN_ARCHITECTURE.md)** — Off-chain design, schema, flows
+- **[docs/DEPLOYMENT_CHECKLIST.md](docs/DEPLOYMENT_CHECKLIST.md)** — Railway, migrations, env vars
+- **[docs/FRONTEND_INTEGRATION.md](docs/FRONTEND_INTEGRATION.md)** — Endpoint examples for game client
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — How to contribute
+- **[SECURITY.md](SECURITY.md)** — Vulnerability reporting
+
+---
 
 ## 🧪 Testing
 
 ```bash
-# Run tests
 npm test
-
-# Run linting
+npm run test:offchain      # Off-chain integration tests
+npm run test:offchain:check-env  # Verify env for tests
 npm run lint
-
-# Check types
 npm run build
 ```
 
-## 📚 API Documentation
-
-### Character Creation
-```javascript
-POST /api/characters
-{
-  "playerPDA": "5nqtWVqMWo4xXJi5nbJg5PgeK7FuP5zF9iL5V9k3YG7p",
-  "playerId": "uuid-here",
-  "characterName": "Belacosaur",
-  "characterClass": "Adventurer"
-}
-```
-
-### Skill Training  
-```javascript
-POST /api/characters/train-skill
-{
-  "assetId": "82LrWa21iWHPmYEVsjCL8D2rHtxZWWraRV3T4GocoZRd",
-  "skillName": "attack",
-  "playerPDA": "5nqtWVqMWo4xXJi5nbJg5PgeK7FuP5zF9iL5V9k3YG7p"
-}
-```
-
-### Experience Addition
-```javascript
-POST /api/skills/add-experience
-{
-  "playerPDA": "5nqtWVqMWo4xXJi5nbJg5PgeK7FuP5zF9iL5V9k3YG7p",
-  "skill": "combat",
-  "experienceGain": 100,
-  "source": "dungeon_completion"
-}
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Make changes with tests
-4. Submit pull request
+---
 
 ## 📄 License
 
-MIT License - see LICENSE file for details
+MIT — see [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**Built for [Runara](https://runara.fun)** • [Obelisk Protocol](https://github.com/Obelisk-Protocol)
+
+</div>
