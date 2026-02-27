@@ -1,5 +1,5 @@
 {
-  "name": "obelisk-skiller-backend",
+  "name": "runara-skiller-backend",
   "version": "1.0.0",
   "description": "TypeScript backend service for Runara character and skill management",
   "main": "dist/index.js",
@@ -18,7 +18,9 @@
     "test:offchain:cleanup": "tsx scripts/test-offchain/test-runner.ts --cleanup",
     "test:offchain:check-env": "tsx scripts/test-offchain/check-env.ts",
     "runara:setup": "node scripts/setup-runara-fresh.js",
-    "runara:setup:confirm": "node scripts/setup-runara-fresh.js --confirm"
+    "runara:setup:confirm": "node scripts/setup-runara-fresh.js --confirm",
+    "migrate:waitlist": "node scripts/migrate-waitlist.mjs",
+    "migrate:waitlist:dry": "node scripts/migrate-waitlist.mjs --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.970.0",
@@ -77,10 +79,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Obelisk-Protocol/runara-skiller.git"
+    "url": "https://github.com/runara/runara-skiller.git"
   },
   "bugs": {
-    "url": "https://github.com/Obelisk-Protocol/runara-skiller/issues"
+    "url": "https://github.com/runara/runara-skiller/issues"
   },
-  "homepage": "https://github.com/Obelisk-Protocol/runara-skiller#readme"
+  "homepage": "https://github.com/runara/runara-skiller#readme"
 }

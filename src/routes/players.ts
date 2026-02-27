@@ -7,8 +7,24 @@ import { PlayerItemService } from '../services/player-items';
 import { z } from 'zod';
 import { pgQuerySingle, pgQuery, pgRpc } from '../utils/pg-helper';
 import { authenticateUser } from '../utils/auth-helper';
+import { getFeatureFlags } from '../services/FeatureFlags';
+import { getInventoryVersionService } from '../services/InventoryVersionService';
 
 const router = Router();
+const FLAG_BLOCK_CLIENT_INVENTORY = 'FF_BLOCK_CLIENT_INVENTORY';
+
+const requireInternalInventoryAuth = (req: any, res: any): boolean => {
+  if (!getFeatureFlags().isEnabled(FLAG_BLOCK_CLIENT_INVENTORY, false)) {
+    return true;
+  }
+  const token = process.env.SKILLER_INTERNAL_TOKEN;
+  const header = req.get('x-internal-token');
+  if (!token || !header || header !== token) {
+    res.status(403).json({ success: false, error: 'Inventory mutation is restricted to server calls' });
+    return false;
+  }
+  return true;
+};
 
 // DELETED: /initialize-web2 - Use /api/players/initialize instead (off-chain, no PDAs)
 // DELETED: /initialize-web3 - Use /api/players/initialize instead (off-chain, no PDAs)
@@ -154,7 +170,8 @@ router.get('/:playerId/items', async (req: any, res: any) => {
     
     return res.json({
       success: true,
-      items
+      items,
+      inventoryVersion: await getInventoryVersionService().getVersion(actualUserId)
     })
   } catch (error) {
     console.error('❌ Get player items error:', error)
@@ -169,6 +186,9 @@ router.get('/:playerId/items', async (req: any, res: any) => {
 // OPTIMIZED: Uses database function for atomic operation (1 query vs 5-10 queries)
 router.post('/:playerId/inventory/move', async (req: any, res: any) => {
   try {
+    if (!requireInternalInventoryAuth(req, res)) {
+      return;
+    }
     const { playerId } = req.params
     const { from_slot, to_slot, quantity } = req.body
 
@@ -254,6 +274,7 @@ router.post('/:playerId/inventory/move', async (req: any, res: any) => {
     }
 
     console.log(`✅ [inventory/move] Move completed:`, result)
+    const inventoryVersion = await getInventoryVersionService().bumpVersion(profile.id)
 
     // Return updated inventory (ordered by slot_position)
     const items = await PlayerItemService.getPlayerItemsWithDefinitions(profile.id)
@@ -261,6 +282,7 @@ router.post('/:playerId/inventory/move', async (req: any, res: any) => {
     return res.json({
       success: true,
       result,
+      inventoryVersion,
       items: items
         .filter(item => item.slot_position !== null && item.slot_position !== undefined)
         .sort((a, b) => (a.slot_position || 999) - (b.slot_position || 999))
@@ -277,6 +299,9 @@ router.post('/:playerId/inventory/move', async (req: any, res: any) => {
 // DELETE /api/players/:playerId/inventory/clear - Clear all items from player inventory (dev/testing)
 router.delete('/:playerId/inventory/clear', async (req: any, res: any) => {
   try {
+    if (!requireInternalInventoryAuth(req, res)) {
+      return;
+    }
     const { playerId } = req.params
 
     // playerId can be either UUID or player_pda
@@ -326,11 +351,13 @@ router.delete('/:playerId/inventory/clear', async (req: any, res: any) => {
     }
 
     console.log(`✅ [inventory/clear] Cleared all items for player ${profile.id}`)
+    const inventoryVersion = await getInventoryVersionService().bumpVersion(profile.id)
     
     return res.json({
       success: true,
       message: 'Inventory cleared successfully',
-      playerId: profile.id
+      playerId: profile.id,
+      inventoryVersion
     })
   } catch (error) {
     console.error('❌ Clear inventory error:', error)
@@ -344,6 +371,9 @@ router.delete('/:playerId/inventory/clear', async (req: any, res: any) => {
 // POST /api/players/:playerId/items/award - Award item to player (server-to-server)
 router.post('/:playerId/items/award', async (req: any, res: any) => {
   try {
+    if (!requireInternalInventoryAuth(req, res)) {
+      return;
+    }
     const { playerId } = req.params
     const schema = z.object({
       itemId: z.string().min(1),
@@ -400,10 +430,12 @@ router.post('/:playerId/items/award', async (req: any, res: any) => {
       source: source || 'game_reward',
       interactionId
     })
+    const inventoryVersion = await getInventoryVersionService().getVersion(profile.id)
     
     return res.json({
       success: true,
-      item: playerItem
+      item: playerItem,
+      inventoryVersion
     })
   } catch (error) {
     console.error('❌ Award item error:', error)

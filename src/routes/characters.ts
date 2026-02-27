@@ -8,11 +8,26 @@ import { MetadataStore, NftColumns } from '../services/database';
 // Supabase removed - use PostgreSQL via pg-helper
 import { pgQuerySingle, pgQuery } from '../utils/pg-helper';
 import { verifyAuthToken } from '../utils/auth-helper';
+import { getFeatureFlags } from '../services/FeatureFlags';
 import { generateCharacterImage } from '../services/character-image-generator';
 import { saveCharacterImage } from '../services/image-storage';
 import { loadCharacterImageData } from '../services/character-data-loader';
 
 const router = Router();
+const FLAG_BLOCK_CLIENT_XP = 'FF_BLOCK_CLIENT_XP';
+
+const requireInternalXpAuth = (req: any, res: any): boolean => {
+  if (!getFeatureFlags().isEnabled(FLAG_BLOCK_CLIENT_XP, false)) {
+    return true;
+  }
+  const token = process.env.SKILLER_INTERNAL_TOKEN;
+  const header = req.get('x-internal-token');
+  if (!token || !header || header !== token) {
+    res.status(403).json({ success: false, error: 'XP mutation is restricted to server calls' });
+    return false;
+  }
+  return true;
+};
 
 // POST /api/characters/clear-slot-after-withdraw
 router.post('/clear-slot-after-withdraw', async (req: any, res: any) => {
@@ -1470,6 +1485,9 @@ router.post('/add-skill-xp', async (req: any, res: any) => {
 // POST /api/characters/award-action
 router.post('/award-action', async (req: any, res: any) => {
   try {
+    if (!requireInternalXpAuth(req, res)) {
+      return;
+    }
     const { assetId, actionKey, quantity, difficultyMultiplier, playerPDA, sessionId, gameMode, idempotencyKey } = AwardActionSchema.parse(req.body)
     
     // Authentication: Allow Bearer token (Unity client), API key, or HMAC (server-to-server)

@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { mplBubblegum } from '@metaplex-foundation/mpl-bubblegum';
 import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';

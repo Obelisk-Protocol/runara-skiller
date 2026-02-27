@@ -2,10 +2,25 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { SkillDatabase } from '../services/database';
 import { addSkillXp } from '../services/nft-skill-experience';
+import { getFeatureFlags } from '../services/FeatureFlags';
 // Supabase removed - use PostgreSQL via pg-helper
 import { pgQuerySingle, pgQuery } from '../utils/pg-helper';
 
 const router = Router();
+const FLAG_BLOCK_CLIENT_XP = 'FF_BLOCK_CLIENT_XP';
+
+const requireInternalXpAuth = (req: any, res: any): boolean => {
+  if (!getFeatureFlags().isEnabled(FLAG_BLOCK_CLIENT_XP, false)) {
+    return true;
+  }
+  const token = process.env.SKILLER_INTERNAL_TOKEN;
+  const header = req.get('x-internal-token');
+  if (!token || !header || header !== token) {
+    res.status(403).json({ success: false, error: 'XP mutation is restricted to server calls' });
+    return false;
+  }
+  return true;
+};
 
 // Validation schemas
 const addExperienceSchema = z.object({
@@ -71,6 +86,9 @@ router.get('/:playerPDA', async (req: any, res: any) => {
 // POST /api/skills/add-experience - Add experience to a skill
 router.post('/add-experience', async (req: any, res: any) => {
   try {
+    if (!requireInternalXpAuth(req, res)) {
+      return;
+    }
     const validatedData = addExperienceSchema.parse(req.body);
     
     console.log('📈 Adding skill experience:', validatedData);
@@ -184,6 +202,9 @@ router.post('/add-experience', async (req: any, res: any) => {
 // POST /api/skills/add-experience-batch - Add experience for multiple skills at once (called by chunk server XP batcher)
 router.post('/add-experience-batch', async (req: any, res: any) => {
   try {
+    if (!requireInternalXpAuth(req, res)) {
+      return;
+    }
     const schema = z.object({
       playerPDA: z.string().min(32).max(44),
       skills: z.array(z.object({
@@ -193,6 +214,7 @@ router.post('/add-experience-batch', async (req: any, res: any) => {
           'smithing', 'crafting', 'cooking', 'alchemy', 'construction', 'luck'
         ]),
         experienceGain: z.number().min(1).max(1000000),
+        idempotencyKey: z.string().optional(),
       })).min(1),
       source: z.string().optional(),
       sessionId: z.string().optional(),
@@ -241,10 +263,11 @@ router.post('/add-experience-batch', async (req: any, res: any) => {
 
     // Apply XP for each skill
     const results: Array<{ skill: string; experienceGain: number; level?: number; leveledUp?: boolean; success: boolean; error?: string }> = [];
-    for (const { skill, experienceGain } of skills) {
+    for (const { skill, experienceGain, idempotencyKey } of skills) {
       try {
         const result = await addSkillXp(assetId, skill as any, experienceGain, {
           playerPDA: actualPlayerPDA,
+          idempotencyKey,
           source,
           sessionId,
           gameMode,

@@ -1,6 +1,7 @@
 // Supabase removed - using PostgreSQL directly
 import { pgQuery, pgQuerySingle } from '../utils/pg-helper'
 import { ItemService, ItemDefinition } from './item'
+import { getInventoryVersionService } from './InventoryVersionService'
 
 export interface PlayerItem {
   id: string
@@ -101,6 +102,7 @@ export class PlayerItemService {
             
             // If no remaining quantity, return the updated stack
             if (quantityToAdd >= quantity) {
+              await getInventoryVersionService().bumpVersion(playerId)
               return updatedStack as PlayerItem
             }
             
@@ -210,7 +212,7 @@ export class PlayerItemService {
     if (!data || data.length === 0) {
       throw new Error('Failed to award item: no data returned')
     }
-    
+    await getInventoryVersionService().bumpVersion(playerId)
     return data[0] as PlayerItem
   }
   
@@ -336,9 +338,10 @@ export class PlayerItemService {
         // If there's remaining quantity, recursively add to new stack(s)
         const remainingDelta = delta - quantityToAdd
         if (remainingDelta > 0) {
+          await getInventoryVersionService().bumpVersion(playerId)
           return await this.updateItemQuantity(playerId, itemId, remainingDelta)
         }
-        
+        await getInventoryVersionService().bumpVersion(playerId)
         return updatedStack as PlayerItem
       } else {
         // All stacks are full - would need to create new stack, but updateItemQuantity doesn't do that
@@ -382,11 +385,13 @@ export class PlayerItemService {
               if (!updatedStacks || updatedStacks.length === 0) {
                 throw new Error('Failed to fetch updated stack')
               }
+              await getInventoryVersionService().bumpVersion(playerId)
               return updatedStacks[0] as PlayerItem
             } else {
               // Return first remaining stack if any
               const remainingStacks = existingStacks.filter((s: any) => s.id !== stack.id && s.quantity > 0)
               if (remainingStacks.length > 0) {
+                await getInventoryVersionService().bumpVersion(playerId)
                 return remainingStacks[0] as PlayerItem
               }
               throw new Error(`Item "${itemId}" removed from inventory`)
@@ -400,6 +405,7 @@ export class PlayerItemService {
       }
       
       // Should not reach here, but return first stack as fallback
+      await getInventoryVersionService().bumpVersion(playerId)
       return existingStacks[0] as PlayerItem
     }
   }
@@ -424,6 +430,7 @@ export class PlayerItemService {
         console.error('❌ Error removing item:', error)
         throw new Error(`Failed to remove item: ${error.message}`)
       }
+      await getInventoryVersionService().bumpVersion(playerId)
     } else {
       // Update quantity
       await this.updateItemQuantity(playerId, itemId, -quantity)

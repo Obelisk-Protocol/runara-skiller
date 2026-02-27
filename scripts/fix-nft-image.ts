@@ -14,7 +14,7 @@ import dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// Load environment variables from .env file in the obelisk-skiller directory
+// Load environment variables from .env file in the skiller directory
 const envPath = path.join(__dirname, '..', '.env');
 if (fs.existsSync(envPath)) {
   dotenv.config({ path: envPath });
@@ -125,7 +125,7 @@ async function main() {
     console.log(`✅ Successfully fixed NFT image!`);
     console.log(`   Image URL: ${imageUrl}`);
     console.log(`   Metadata updated with image field`);
-    console.log(`   View metadata: https://obelisk-skiller-production.up.railway.app/metadata/${nftRow.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`);
+    console.log(`   View metadata: https://runara-skiller.up.railway.app/metadata/${nftRow.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`);
     
   } catch (error) {
     console.error('❌ Error fixing NFT image:', error);

@@ -19,7 +19,7 @@ We will respond as soon as possible and work with you to resolve the issue.
 
 ## Security Best Practices
 
-When deploying Obelisk Skiller:
+When deploying Runara Skiller:
 
 - **Never commit** `.env`, `.env.local`, or any file containing secrets
 - Use strong, randomly generated values for `XP_API_KEY`, `XP_SIGNING_SECRET`, and `JWT_SECRET`

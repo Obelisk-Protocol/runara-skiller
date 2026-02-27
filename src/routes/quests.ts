@@ -24,7 +24,7 @@ function getPgClient(): InstanceType<typeof Client> {
 // Validation schemas
 const QuestSchema = z.object({
   id: z.string().optional(),
-  world_name: z.string().default('obelisk_world'),
+  world_name: z.string().default('runara_world'),
   title: z.string().min(1),
   description: z.string().optional(),
   quest_type: z.enum(['fetch', 'kill', 'deliver', 'interact', 'craft']),
@@ -46,7 +46,7 @@ router.get('/', async (req: any, res: any) => {
   try {
     await client.connect();
     
-    const worldName = req.query.worldName || 'obelisk_world';
+    const worldName = req.query.worldName || 'runara_world';
     const id = req.query.id;
     
     let query = 'SELECT * FROM quests WHERE world_name = $1';

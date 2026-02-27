@@ -1,8 +1,10 @@
-import express, { Response } from 'express';
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 import { Client } from 'pg';
@@ -38,9 +40,7 @@ import characterSelectionRoutes from './routes/character-selection';
 import questRoutes from './routes/quests';
 import configRoutes from './routes/config';
 import characterCustomizationRoutes from './routes/character-customization';
-
-// Load environment variables
-dotenv.config();
+import { getFeatureFlags } from './services/FeatureFlags';
 
 // Validate critical environment variables at startup
 function validateEnvironment() {
@@ -152,6 +152,49 @@ app.use('/character-images', express.static(characterImagesDir, {
 
 // Health check endpoint
 app.use('/health', healthRoutes);
+
+// Feature flag management (server-side only, environment scoped)
+const requireFeatureFlagToken = (
+  req: any,
+  res: any,
+  next: any,
+): void => {
+  const token = process.env.FEATURE_FLAG_TOKEN
+  if (!token) {
+    return res.status(403).json({ success: false, error: 'Feature flags are disabled' });
+  }
+  const header = req.header('x-feature-flag-token')
+  if (!header || header !== token) {
+    return res.status(403).json({ success: false, error: 'Unauthorized' });
+  }
+  return next()
+}
+
+app.get('/api/flags/:flag', requireFeatureFlagToken, (req, res) => {
+  const flag = String(req.params.flag || '')
+  if (!flag) return res.status(400).json({ success: false, error: 'Missing flag name' })
+  const value = getFeatureFlags().getFlagValue(flag, false)
+  return res.json({ success: true, flag, value, env: getFeatureFlags().getEnvScope() })
+})
+
+app.post('/api/flags', requireFeatureFlagToken, (req, res) => {
+  const { flag, value } = req.body || {}
+  if (typeof flag !== 'string' || flag.trim().length === 0) {
+    return res.status(400).json({ success: false, error: 'Invalid flag name' })
+  }
+  if (typeof value !== 'boolean') {
+    return res.status(400).json({ success: false, error: 'Invalid flag value' })
+  }
+  getFeatureFlags().setFlag(flag, value)
+  return res.json({ success: true, flag, value, env: getFeatureFlags().getEnvScope() })
+})
+
+app.delete('/api/flags/:flag', requireFeatureFlagToken, (req, res) => {
+  const flag = String(req.params.flag || '')
+  if (!flag) return res.status(400).json({ success: false, error: 'Missing flag name' })
+  getFeatureFlags().clearFlag(flag)
+  return res.json({ success: true, flag, env: getFeatureFlags().getEnvScope() })
+})
 
 // API routes
 app.use('/api/characters', characterRoutes);

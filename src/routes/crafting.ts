@@ -4,6 +4,7 @@ import { CraftingService } from '../services/crafting'
 // Supabase removed - use PostgreSQL via pg-helper
 import { pgQuerySingle, pgQuery } from '../utils/pg-helper'
 import { verifyAuthToken } from '../utils/auth-helper'
+import { getInventoryVersionService } from '../services/InventoryVersionService'
 
 const router = Router()
 
@@ -66,11 +67,13 @@ router.post('/', async (req: any, res: any) => {
     // Get updated inventory immediately for real-time UI update
     const { PlayerItemService } = await import('../services/player-items')
     const updatedInventory = await PlayerItemService.getPlayerItemsWithDefinitions(userId)
+    const inventoryVersion = await getInventoryVersionService().getVersion(userId)
     
     return res.json({
       success: true,
       craftedItem: result.craftedItem,
-      inventory: updatedInventory // Return full updated inventory for instant UI update
+      inventory: updatedInventory, // Return full updated inventory for instant UI update
+      inventoryVersion
     })
   } catch (error) {
     console.error('❌ Craft endpoint error:', error)

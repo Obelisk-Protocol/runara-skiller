@@ -1,6 +1,6 @@
-# Contributing to Obelisk Skiller
+# Contributing to Runara Skiller
 
-Thank you for your interest in contributing! This document provides guidelines for contributing to the Obelisk Skiller backend service.
+Thank you for your interest in contributing! This document provides guidelines for contributing to the Runara Skiller backend service.
 
 ## Development Setup
 

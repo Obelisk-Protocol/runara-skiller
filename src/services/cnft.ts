@@ -297,7 +297,7 @@ export async function createCharacterCNFT(
     
     // Store metadata in database (no Arweave - faster and more reliable)
     // We'll use a metadata URL that points directly to the backend API endpoint
-    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://runara-skiller.up.railway.app';
     // Create URL-safe name: lowercase, spaces -> hyphens, remove special chars
     const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     const metadataUri = `${backendBase}/api/characters/metadata/${urlSafeName}`;
@@ -540,7 +540,7 @@ export async function createCharacterCNFT(
       
       // Update metadata in database with correct assetId and final metadata URI
       // Use character name in URI (like Arweave) - much shorter than assetId
-      const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
+      const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://runara-skiller.up.railway.app';
       // Create URL-safe name: lowercase, spaces -> hyphens, remove special chars
       const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
       const finalMetadataUri = `${backendBase}/api/characters/metadata/${urlSafeName}`;
@@ -919,7 +919,7 @@ export async function updateCharacterCNFT(
     
     // Store metadata in database instead of Arweave
     // Point directly to backend API endpoint
-    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://runara-skiller.up.railway.app';
     // Get character name from stats
     const characterName = characterStats.name || 'character';
     const urlSafeName = characterName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -1109,7 +1109,7 @@ export async function repairNFTMetadataURI(
     // Check current URI
     const currentUri = assetWithProof.metadata.uri as string;
     // Backend base for metadata URIs
-    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://obelisk-skiller-production.up.railway.app';
+    const backendBase = process.env.BACKEND_BASE || process.env.BACKEND_BASE_URL || 'https://runara-skiller.up.railway.app';
     // Get character name from database
     let characterName = 'character';
     try {

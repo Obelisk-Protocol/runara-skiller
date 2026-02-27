@@ -62,7 +62,7 @@ export async function ensureNftTable(): Promise<void> {
         const possiblePaths = [
           path.join(__dirname, '../../migrations/999_complete_schema_migration.sql'),
           path.join(process.cwd(), 'migrations/999_complete_schema_migration.sql'),
-          path.join(process.cwd(), 'obelisk-skiller/migrations/999_complete_schema_migration.sql'),
+          path.join(process.cwd(), 'skiller/migrations/999_complete_schema_migration.sql'),
         ];
         
         let migrationPath: string | null = null;
@@ -84,7 +84,7 @@ export async function ensureNftTable(): Promise<void> {
         const authMigrationPaths = [
           path.join(__dirname, '../../migrations/010_add_auth_fields.sql'),
           path.join(process.cwd(), 'migrations/010_add_auth_fields.sql'),
-          path.join(process.cwd(), 'obelisk-skiller/migrations/010_add_auth_fields.sql'),
+          path.join(process.cwd(), 'skiller/migrations/010_add_auth_fields.sql'),
         ];
         
         let authMigrationSQL: string | null = null;
@@ -100,7 +100,7 @@ export async function ensureNftTable(): Promise<void> {
         const polygonCollisionMigrationPaths = [
           path.join(__dirname, '../../migrations/20250206000000_add_polygon_collision.sql'),
           path.join(process.cwd(), 'migrations/20250206000000_add_polygon_collision.sql'),
-          path.join(process.cwd(), 'obelisk-skiller/migrations/20250206000000_add_polygon_collision.sql'),
+          path.join(process.cwd(), 'skiller/migrations/20250206000000_add_polygon_collision.sql'),
         ];
         
         let polygonCollisionMigrationSQL: string | null = null;
@@ -116,7 +116,7 @@ export async function ensureNftTable(): Promise<void> {
         const waitlistMigrationPaths = [
           path.join(__dirname, '../../migrations/20250220000000_add_waitlist_table.sql'),
           path.join(process.cwd(), 'migrations/20250220000000_add_waitlist_table.sql'),
-          path.join(process.cwd(), 'obelisk-skiller/migrations/20250220000000_add_waitlist_table.sql'),
+          path.join(process.cwd(), 'skiller/migrations/20250220000000_add_waitlist_table.sql'),
         ];
         let waitlistMigrationSQL: string | null = null;
         for (const testPath of waitlistMigrationPaths) {
@@ -131,13 +131,28 @@ export async function ensureNftTable(): Promise<void> {
         const referralMigrationPaths = [
           path.join(__dirname, '../../migrations/20250221000000_add_referral_codes.sql'),
           path.join(process.cwd(), 'migrations/20250221000000_add_referral_codes.sql'),
-          path.join(process.cwd(), 'obelisk-skiller/migrations/20250221000000_add_referral_codes.sql'),
+          path.join(process.cwd(), 'skiller/migrations/20250221000000_add_referral_codes.sql'),
         ];
         let referralMigrationSQL: string | null = null;
         for (const testPath of referralMigrationPaths) {
           if (fs.existsSync(testPath)) {
             referralMigrationSQL = fs.readFileSync(testPath, 'utf-8');
             console.log(`📝 Loading referral codes migration...`);
+            break;
+          }
+        }
+
+        // Load inventory versions migration if it exists
+        const inventoryVersionMigrationPaths = [
+          path.join(__dirname, '../../migrations/20260227000000_add_inventory_versions.sql'),
+          path.join(process.cwd(), 'migrations/20260227000000_add_inventory_versions.sql'),
+          path.join(process.cwd(), 'skiller/migrations/20260227000000_add_inventory_versions.sql'),
+        ];
+        let inventoryVersionMigrationSQL: string | null = null;
+        for (const testPath of inventoryVersionMigrationPaths) {
+          if (fs.existsSync(testPath)) {
+            inventoryVersionMigrationSQL = fs.readFileSync(testPath, 'utf-8');
+            console.log(`📝 Loading inventory versions migration...`);
             break;
           }
         }
@@ -152,7 +167,7 @@ export async function ensureNftTable(): Promise<void> {
           const biomePaths = [
             path.join(__dirname, '../../migrations', filename),
             path.join(process.cwd(), 'migrations', filename),
-            path.join(process.cwd(), 'obelisk-skiller/migrations', filename),
+            path.join(process.cwd(), 'skiller/migrations', filename),
           ];
           for (const testPath of biomePaths) {
             if (fs.existsSync(testPath)) {
@@ -177,6 +192,9 @@ export async function ensureNftTable(): Promise<void> {
         }
         if (referralMigrationSQL) {
           await client.query(referralMigrationSQL);
+        }
+        if (inventoryVersionMigrationSQL) {
+          await client.query(inventoryVersionMigrationSQL);
         }
         for (const sql of biomeMigrationSQLs) {
           await client.query(sql);

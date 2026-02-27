@@ -174,7 +174,7 @@ Background worker (60s)  →  updateCharacterCNFT()  →  Metaplex metadata on-c
 ## 🚀 Quick Start
 
 ```bash
-git clone https://github.com/Obelisk-Protocol/runara-skiller.git
+git clone https://github.com/runara/runara-skiller.git
 cd runara-skiller
 npm install
 cp env.example .env
@@ -289,6 +289,6 @@ MIT — see [LICENSE](LICENSE).
 
 <div align="center">
 
-**Built for [Runara](https://runara.fun)** • [Obelisk Protocol](https://github.com/Obelisk-Protocol)
+**Built for [Runara](https://runara.fun)**
 
 </div>
