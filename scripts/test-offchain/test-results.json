@@ -1,0 +1,366 @@
+{
+  "timestamp": "2026-02-04T11:53:40.154Z",
+  "results": [
+    {
+      "suite": "test-setup",
+      "passed": 2,
+      "failed": 2,
+      "total": 4,
+      "duration": 9112,
+      "results": [
+        {
+          "suite": "test-setup",
+          "test": "testDatabaseConnection",
+          "passed": false,
+          "error": "Database connection failed: getaddrinfo ENOTFOUND base",
+          "duration": 2710
+        },
+        {
+          "suite": "test-setup",
+          "test": "testDatabaseSchema",
+          "passed": false,
+          "error": "Assertion failed: Failed to check table profiles",
+          "duration": 2707
+        },
+        {
+          "suite": "test-setup",
+          "test": "testEnvironmentVariables",
+          "passed": true,
+          "duration": 0
+        },
+        {
+          "suite": "test-setup",
+          "test": "testSolanaConfig",
+          "passed": true,
+          "duration": 3557
+        }
+      ]
+    },
+    {
+      "suite": "test-player-accounts",
+      "passed": 1,
+      "failed": 7,
+      "total": 8,
+      "duration": 25914,
+      "results": [
+        {
+          "suite": "test-player-accounts",
+          "test": "testGetPlayerById",
+          "passed": false,
+          "error": "Cannot read properties of undefined (reading 'userId')",
+          "duration": 0
+        },
+        {
+          "suite": "test-player-accounts",
+          "test": "testGetPlayerByUserId",
+          "passed": false,
+          "error": "Cannot read properties of undefined (reading 'userId')",
+          "duration": 0
+        },
+        {
+          "suite": "test-player-accounts",
+          "test": "testGetPlayerByWallet",
+          "passed": false,
+          "error": "Cannot read properties of undefined (reading 'walletAddress')",
+          "duration": 0
+        },
+        {
+          "suite": "test-player-accounts",
+          "test": "testGetPlayerWallet",
+          "passed": false,
+          "error": "Cannot read properties of undefined (reading 'userId')",
+          "duration": 0
+        },
+        {
+          "suite": "test-player-accounts",
+          "test": "testInitializePlayer",
+          "passed": false,
+          "error": "getaddrinfo ENOTFOUND base",
+          "duration": 5399
+        },
+        {
+          "suite": "test-player-accounts",
+          "test": "testPlayerExists",
+          "passed": false,
+          "error": "Assertion failed: Player should exist",
+          "duration": 2696
+        },
+        {
+          "suite": "test-player-accounts",
+          "test": "testUpdatePlayer",
+          "passed": false,
+          "error": "getaddrinfo ENOTFOUND base",
+          "duration": 2706
+        },
+        {
+          "suite": "test-player-accounts",
+          "test": "testCleanup",
+          "passed": true,
+          "duration": 13492
+        }
+      ]
+    },
+    {
+      "suite": "test-token-accounts",
+      "passed": 1,
+      "failed": 8,
+      "total": 9,
+      "duration": 41814,
+      "results": [
+        {
+          "suite": "test-token-accounts",
+          "test": "testSetup",
+          "passed": false,
+          "error": "getaddrinfo ENOTFOUND base",
+          "duration": 5410
+        },
+        {
+          "suite": "test-token-accounts",
+          "test": "testCreateTokenAccount",
+          "passed": false,
+          "error": "Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 0: invalid account data for instruction. \nLogs: \n[\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]\",\n  \"Program log: Instruction: InitializeAccount3\",\n  \"Program log: Error: InvalidAccountData\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 973 of 200000 compute units\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: invalid account data for instruction\"\n]. \nCatch the `SendTransactionError` and call `getLogs()` on it for full details.",
+          "duration": 3391
+        },
+        {
+          "suite": "test-token-accounts",
+          "test": "testEnsureTokenAccount",
+          "passed": false,
+          "error": "Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 0: invalid account data for instruction. \nLogs: \n[\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]\",\n  \"Program log: Instruction: InitializeAccount3\",\n  \"Program log: Error: InvalidAccountData\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 973 of 200000 compute units\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: invalid account data for instruction\"\n]. \nCatch the `SendTransactionError` and call `getLogs()` on it for full details.",
+          "duration": 5944
+        },
+        {
+          "suite": "test-token-accounts",
+          "test": "testGetCOBXAccount",
+          "passed": false,
+          "error": "Assertion failed: cOBX account should be found",
+          "duration": 2707
+        },
+        {
+          "suite": "test-token-accounts",
+          "test": "testGetOBXAccount",
+          "passed": false,
+          "error": "Assertion failed: OBX account should be found",
+          "duration": 2706
+        },
+        {
+          "suite": "test-token-accounts",
+          "test": "testGetPlayerTokenAccounts",
+          "passed": false,
+          "error": "Assertion failed: Should have at least one token account",
+          "duration": 2709
+        },
+        {
+          "suite": "test-token-accounts",
+          "test": "testGetTokenAccount",
+          "passed": false,
+          "error": "Assertion failed: Token account should be found",
+          "duration": 2695
+        },
+        {
+          "suite": "test-token-accounts",
+          "test": "testSyncBalance",
+          "passed": false,
+          "error": "Token account not found",
+          "duration": 2710
+        },
+        {
+          "suite": "test-token-accounts",
+          "test": "testCleanup",
+          "passed": true,
+          "duration": 13532
+        }
+      ]
+    },
+    {
+      "suite": "test-balance-manager",
+      "passed": 3,
+      "failed": 6,
+      "total": 9,
+      "duration": 43235,
+      "results": [
+        {
+          "suite": "test-balance-manager",
+          "test": "testSetup",
+          "passed": false,
+          "error": "getaddrinfo ENOTFOUND base",
+          "duration": 5401
+        },
+        {
+          "suite": "test-balance-manager",
+          "test": "testGetBalance",
+          "passed": true,
+          "duration": 2707
+        },
+        {
+          "suite": "test-balance-manager",
+          "test": "testGetBalanceAfterUpdate",
+          "passed": false,
+          "error": "Assertion failed: Balance should be 1500 cOBX\n  Expected: 1500000000000\n  Actual: 0",
+          "duration": 2696
+        },
+        {
+          "suite": "test-balance-manager",
+          "test": "testGetBalanceInfo",
+          "passed": false,
+          "error": "Token account not found",
+          "duration": 5393
+        },
+        {
+          "suite": "test-balance-manager",
+          "test": "testGetTransactionHistory",
+          "passed": false,
+          "error": "Assertion failed: Should have at least 2 transactions",
+          "duration": 2708
+        },
+        {
+          "suite": "test-balance-manager",
+          "test": "testSyncBalanceWithOnChain",
+          "passed": false,
+          "error": "Token account not found",
+          "duration": 2719
+        },
+        {
+          "suite": "test-balance-manager",
+          "test": "testUpdateBalance",
+          "passed": false,
+          "error": "getaddrinfo ENOTFOUND base",
+          "duration": 5405
+        },
+        {
+          "suite": "test-balance-manager",
+          "test": "testUpdateBalanceInsufficient",
+          "passed": true,
+          "duration": 2713
+        },
+        {
+          "suite": "test-balance-manager",
+          "test": "testCleanup",
+          "passed": true,
+          "duration": 13485
+        }
+      ]
+    },
+    {
+      "suite": "test-token-operations",
+      "passed": 2,
+      "failed": 4,
+      "total": 6,
+      "duration": 50300,
+      "results": [
+        {
+          "suite": "test-token-operations",
+          "test": "testSetup",
+          "passed": false,
+          "error": "getaddrinfo ENOTFOUND base",
+          "duration": 5421
+        },
+        {
+          "suite": "test-token-operations",
+          "test": "testDepositOBX",
+          "passed": true,
+          "duration": 0
+        },
+        {
+          "suite": "test-token-operations",
+          "test": "testMintReward",
+          "passed": false,
+          "error": "Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 0: invalid account data for instruction. \nLogs: \n[\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]\",\n  \"Program log: Instruction: InitializeAccount3\",\n  \"Program log: Error: InvalidAccountData\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 973 of 200000 compute units\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: invalid account data for instruction\"\n]. \nCatch the `SendTransactionError` and call `getLogs()` on it for full details.",
+          "duration": 6114
+        },
+        {
+          "suite": "test-token-operations",
+          "test": "testTransferBetweenPlayers",
+          "passed": false,
+          "error": "Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 0: invalid account data for instruction. \nLogs: \n[\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]\",\n  \"Program log: Instruction: InitializeAccount3\",\n  \"Program log: Error: InvalidAccountData\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 973 of 200000 compute units\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: invalid account data for instruction\"\n]. \nCatch the `SendTransactionError` and call `getLogs()` on it for full details.",
+          "duration": 5828
+        },
+        {
+          "suite": "test-token-operations",
+          "test": "testWithdrawOBX",
+          "passed": false,
+          "error": "Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 0: invalid account data for instruction. \nLogs: \n[\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]\",\n  \"Program log: Instruction: InitializeAccount3\",\n  \"Program log: Error: InvalidAccountData\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 973 of 200000 compute units\",\n  \"Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: invalid account data for instruction\"\n]. \nCatch the `SendTransactionError` and call `getLogs()` on it for full details.",
+          "duration": 5923
+        },
+        {
+          "suite": "test-token-operations",
+          "test": "testCleanup",
+          "passed": true,
+          "duration": 27007
+        }
+      ]
+    },
+    {
+      "suite": "test-cnft-storage",
+      "passed": 7,
+      "failed": 1,
+      "total": 8,
+      "duration": 32385,
+      "results": [
+        {
+          "suite": "test-cnft-storage",
+          "test": "testSetup",
+          "passed": false,
+          "error": "getaddrinfo ENOTFOUND base",
+          "duration": 5381
+        },
+        {
+          "suite": "test-cnft-storage",
+          "test": "testGetCNFTByAssetId",
+          "passed": true,
+          "duration": 2708
+        },
+        {
+          "suite": "test-cnft-storage",
+          "test": "testGetPlayerCNFTs",
+          "passed": true,
+          "duration": 2705
+        },
+        {
+          "suite": "test-cnft-storage",
+          "test": "testGetTreasuryCNFTs",
+          "passed": true,
+          "duration": 2707
+        },
+        {
+          "suite": "test-cnft-storage",
+          "test": "testGetTreasuryCNFTsByPlayer",
+          "passed": true,
+          "duration": 2697
+        },
+        {
+          "suite": "test-cnft-storage",
+          "test": "testMintToTreasury",
+          "passed": true,
+          "duration": 0
+        },
+        {
+          "suite": "test-cnft-storage",
+          "test": "testWithdrawCNFT",
+          "passed": true,
+          "duration": 2687
+        },
+        {
+          "suite": "test-cnft-storage",
+          "test": "testCleanup",
+          "passed": true,
+          "duration": 13493
+        }
+      ]
+    },
+    {
+      "suite": "test-cleanup",
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "duration": 2682,
+      "results": [
+        {
+          "suite": "test-cleanup",
+          "test": "testCleanupAllTestData",
+          "passed": true,
+          "duration": 2676
+        }
+      ]
+    }
+  ]
+}

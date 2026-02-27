@@ -1,0 +1,3050 @@
+{
+  "address": "C7hwoCsPx8Gb1EzjhdvBtMix5Ew79UpCsSFT3ZwQDA4U",
+  "metadata": {
+    "name": "tower_of_power",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "add_character_cnft",
+      "discriminator": [
+        216,
+        200,
+        254,
+        255,
+        168,
+        35,
+        40,
+        80
+      ],
+      "accounts": [
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "player_account"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "_asset_id",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "buy_item",
+      "discriminator": [
+        80,
+        82,
+        193,
+        201,
+        216,
+        27,
+        70,
+        184
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "listing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.asset_id",
+                "account": "Listing"
+              }
+            ]
+          }
+        },
+        {
+          "name": "marketplace_stats",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  112,
+                  108,
+                  97,
+                  99,
+                  101,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer_player_account",
+          "docs": [
+            "The buyer's Player PDA (where the cNFT will be transferred)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "buyer_cobx_account",
+          "docs": [
+            "Buyer's cOBX token account (for payment)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "seller_cobx_account",
+          "docs": [
+            "Seller's cOBX token account (to receive payment)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "treasury_cobx_account",
+          "docs": [
+            "Treasury cOBX account (for marketplace fees)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_listing",
+      "discriminator": [
+        41,
+        183,
+        50,
+        232,
+        230,
+        233,
+        157,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "listing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.asset_id",
+                "account": "Listing"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "listing"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cobx_reward",
+      "discriminator": [
+        45,
+        112,
+        99,
+        67,
+        76,
+        49,
+        211,
+        183
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "cobx_mint",
+          "writable": true
+        },
+        {
+          "name": "player_cobx_account",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_cobx_account",
+      "discriminator": [
+        189,
+        182,
+        139,
+        18,
+        245,
+        95,
+        104,
+        202
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account"
+        },
+        {
+          "name": "cobx_mint"
+        },
+        {
+          "name": "player_cobx_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  98,
+                  120
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "web2_id_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "web2_id_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_cobx_account_v2",
+      "discriminator": [
+        116,
+        72,
+        67,
+        93,
+        221,
+        70,
+        244,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account"
+        },
+        {
+          "name": "cobx_mint"
+        },
+        {
+          "name": "player_cobx_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  98,
+                  120,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "web2_id_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "web2_id_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_player_cnft",
+      "discriminator": [
+        15,
+        202,
+        67,
+        46,
+        232,
+        202,
+        17,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "character_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  114,
+                  97,
+                  99,
+                  116,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "merkle_tree",
+          "docs": [
+            "Merkle tree for player cNFTs"
+          ],
+          "writable": true
+        },
+        {
+          "name": "tree_config",
+          "docs": [
+            "Tree config PDA"
+          ],
+          "writable": true
+        },
+        {
+          "name": "leaf_owner",
+          "docs": [
+            "Owner of the new player cNFT (PlayerAccount PDA for Web2 players)"
+          ]
+        },
+        {
+          "name": "tree_creator",
+          "docs": [
+            "Tree creator/delegate"
+          ]
+        },
+        {
+          "name": "collection_mint",
+          "docs": [
+            "Collection mint for player cNFTs"
+          ]
+        },
+        {
+          "name": "collection_metadata",
+          "docs": [
+            "Collection metadata account"
+          ]
+        },
+        {
+          "name": "collection_edition",
+          "docs": [
+            "Collection edition account"
+          ]
+        },
+        {
+          "name": "collection_authority",
+          "docs": [
+            "Collection authority"
+          ]
+        },
+        {
+          "name": "collection_authority_record",
+          "docs": [
+            "Collection authority record"
+          ]
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Payer for the transaction"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bubblegum_program"
+        },
+        {
+          "name": "token_metadata_program"
+        },
+        {
+          "name": "compression_program",
+          "address": "cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK"
+        },
+        {
+          "name": "log_wrapper"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "player_name",
+          "type": "string"
+        },
+        {
+          "name": "metadata_uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "deposit_obx",
+      "discriminator": [
+        82,
+        22,
+        120,
+        189,
+        150,
+        255,
+        244,
+        116
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "cobx_mint",
+          "writable": true
+        },
+        {
+          "name": "player_cobx_account",
+          "writable": true
+        },
+        {
+          "name": "vault_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_obx_account",
+          "writable": true
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_character_config",
+      "discriminator": [
+        65,
+        61,
+        229,
+        181,
+        107,
+        135,
+        61,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "character_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  114,
+                  97,
+                  99,
+                  116,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "player_merkle_tree",
+          "type": "pubkey"
+        },
+        {
+          "name": "collection_mint",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "initialize_config",
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_marketplace",
+      "discriminator": [
+        47,
+        81,
+        64,
+        0,
+        96,
+        56,
+        105,
+        7
+      ],
+      "accounts": [
+        {
+          "name": "marketplace_stats",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  112,
+                  108,
+                  97,
+                  99,
+                  101,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "fee_percentage",
+          "type": "u16"
+        },
+        {
+          "name": "treasury",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "initialize_vault",
+      "discriminator": [
+        48,
+        191,
+        163,
+        44,
+        71,
+        129,
+        63,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "obx_mint"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_web2_player",
+      "discriminator": [
+        239,
+        99,
+        75,
+        162,
+        151,
+        105,
+        110,
+        72
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "web2_id_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_cobx_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  98,
+                  120
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "web2_id_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cobx_mint"
+        },
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "class",
+          "type": "u8"
+        },
+        {
+          "name": "web2_id_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_web3_player",
+      "discriminator": [
+        40,
+        98,
+        38,
+        26,
+        51,
+        86,
+        11,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "signer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_cobx_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  98,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "signer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cobx_mint"
+        },
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "class",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "level_up",
+      "discriminator": [
+        128,
+        64,
+        197,
+        116,
+        226,
+        129,
+        119,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "player_account"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "list_item",
+      "discriminator": [
+        174,
+        245,
+        22,
+        211,
+        228,
+        103,
+        121,
+        13
+      ],
+      "accounts": [
+        {
+          "name": "listing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "asset_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "marketplace_stats",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  112,
+                  108,
+                  97,
+                  99,
+                  101,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account",
+          "docs": [
+            "The seller's Player PDA (must own the cNFT being listed)"
+          ]
+        },
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "asset_id",
+          "type": "pubkey"
+        },
+        {
+          "name": "tree_id",
+          "type": "pubkey"
+        },
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "category",
+          "type": {
+            "defined": {
+              "name": "ItemCategory"
+            }
+          }
+        },
+        {
+          "name": "rarity",
+          "type": {
+            "defined": {
+              "name": "ItemRarity"
+            }
+          }
+        },
+        {
+          "name": "item_name",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "migrate_to_wallet",
+      "discriminator": [
+        217,
+        249,
+        193,
+        212,
+        240,
+        80,
+        50,
+        162
+      ],
+      "accounts": [
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "player_account"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "mint_cobx_reward",
+      "discriminator": [
+        219,
+        33,
+        60,
+        176,
+        182,
+        74,
+        99,
+        94
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "cobx_mint",
+          "writable": true
+        },
+        {
+          "name": "player_cobx_account",
+          "writable": true
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "remove_character_cnft",
+      "discriminator": [
+        70,
+        232,
+        9,
+        238,
+        232,
+        146,
+        95,
+        141
+      ],
+      "accounts": [
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "player_account"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "asset_id",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_active_player_cnft",
+      "discriminator": [
+        53,
+        225,
+        144,
+        67,
+        137,
+        104,
+        238,
+        58
+      ],
+      "accounts": [
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "player_account"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "player_asset_id",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_admin",
+      "discriminator": [
+        161,
+        176,
+        40,
+        213,
+        60,
+        184,
+        179,
+        228
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_cobx_mint",
+      "discriminator": [
+        21,
+        113,
+        108,
+        253,
+        29,
+        124,
+        126,
+        65
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "cobx_mint",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_collection_mint",
+      "discriminator": [
+        109,
+        6,
+        167,
+        62,
+        117,
+        235,
+        19,
+        11
+      ],
+      "accounts": [
+        {
+          "name": "character_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  114,
+                  97,
+                  99,
+                  116,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "character_config"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "collection_mint",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_marketplace_fee",
+      "discriminator": [
+        28,
+        15,
+        40,
+        156,
+        16,
+        211,
+        77,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "marketplace_stats",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  112,
+                  108,
+                  97,
+                  99,
+                  101,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "marketplace_stats"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_fee_percentage",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "update_obx_mint",
+      "discriminator": [
+        48,
+        113,
+        252,
+        187,
+        76,
+        222,
+        42,
+        27
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "obx_mint",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_player_cnft",
+      "discriminator": [
+        137,
+        41,
+        187,
+        32,
+        135,
+        113,
+        150,
+        254
+      ],
+      "accounts": [
+        {
+          "name": "player_account"
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "player_account"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "asset_id",
+          "type": "pubkey"
+        },
+        {
+          "name": "new_metadata_uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "update_player_merkle_tree",
+      "discriminator": [
+        164,
+        55,
+        73,
+        18,
+        46,
+        77,
+        147,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "character_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  114,
+                  97,
+                  99,
+                  116,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "character_config"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "player_merkle_tree",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "vault_transfer",
+      "discriminator": [
+        211,
+        125,
+        3,
+        105,
+        45,
+        33,
+        227,
+        214
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "obx_mint",
+          "writable": true
+        },
+        {
+          "name": "vault_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_obx_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_character_cnft",
+      "discriminator": [
+        159,
+        56,
+        198,
+        121,
+        13,
+        254,
+        64,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "player_wallet",
+          "docs": [
+            "Player's wallet to receive the cNFT"
+          ]
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "Player authority (must have connected wallet to withdraw)"
+          ],
+          "signer": true,
+          "relations": [
+            "player_account"
+          ]
+        },
+        {
+          "name": "merkle_tree",
+          "docs": [
+            "Merkle tree for the cNFT"
+          ],
+          "writable": true
+        },
+        {
+          "name": "tree_config",
+          "docs": [
+            "Tree config PDA"
+          ],
+          "writable": true
+        },
+        {
+          "name": "bubblegum_program"
+        },
+        {
+          "name": "compression_program",
+          "address": "cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK"
+        },
+        {
+          "name": "log_wrapper"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "asset_id",
+          "type": "pubkey"
+        },
+        {
+          "name": "root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "data_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "creator_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "index",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_obx",
+      "discriminator": [
+        52,
+        214,
+        159,
+        40,
+        91,
+        119,
+        162,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_account",
+          "writable": true
+        },
+        {
+          "name": "cobx_mint",
+          "writable": true
+        },
+        {
+          "name": "player_cobx_account",
+          "writable": true
+        },
+        {
+          "name": "vault_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_obx_account",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "web2_id_hash",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "CharacterConfig",
+      "discriminator": [
+        216,
+        141,
+        157,
+        197,
+        246,
+        187,
+        45,
+        162
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Listing",
+      "discriminator": [
+        218,
+        32,
+        50,
+        73,
+        43,
+        134,
+        26,
+        58
+      ]
+    },
+    {
+      "name": "MarketplaceStats",
+      "discriminator": [
+        30,
+        139,
+        112,
+        83,
+        224,
+        186,
+        217,
+        38
+      ]
+    },
+    {
+      "name": "PlayerAccount",
+      "discriminator": [
+        224,
+        184,
+        224,
+        50,
+        98,
+        72,
+        48,
+        236
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ActivePlayerCNFTChanged",
+      "discriminator": [
+        40,
+        43,
+        73,
+        247,
+        32,
+        49,
+        50,
+        246
+      ]
+    },
+    {
+      "name": "COBXRewardEvent",
+      "discriminator": [
+        113,
+        209,
+        142,
+        169,
+        31,
+        206,
+        138,
+        130
+      ]
+    },
+    {
+      "name": "CharacterCNFTAdded",
+      "discriminator": [
+        21,
+        82,
+        209,
+        51,
+        53,
+        246,
+        4,
+        122
+      ]
+    },
+    {
+      "name": "CharacterCNFTRemoved",
+      "discriminator": [
+        100,
+        244,
+        13,
+        125,
+        51,
+        238,
+        68,
+        121
+      ]
+    },
+    {
+      "name": "CharacterCNFTWithdrawn",
+      "discriminator": [
+        231,
+        67,
+        141,
+        42,
+        53,
+        115,
+        172,
+        30
+      ]
+    },
+    {
+      "name": "DepositCompleted",
+      "discriminator": [
+        87,
+        191,
+        139,
+        46,
+        172,
+        192,
+        191,
+        52
+      ]
+    },
+    {
+      "name": "ItemPurchased",
+      "discriminator": [
+        33,
+        219,
+        12,
+        58,
+        205,
+        48,
+        63,
+        143
+      ]
+    },
+    {
+      "name": "PlayerCNFTCreated",
+      "discriminator": [
+        209,
+        42,
+        188,
+        31,
+        248,
+        58,
+        5,
+        9
+      ]
+    },
+    {
+      "name": "PlayerCNFTUpdated",
+      "discriminator": [
+        4,
+        19,
+        55,
+        242,
+        153,
+        177,
+        170,
+        163
+      ]
+    },
+    {
+      "name": "WithdrawalCompleted",
+      "discriminator": [
+        190,
+        43,
+        125,
+        91,
+        115,
+        50,
+        166,
+        172
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAccountData",
+      "msg": "Invalid account data provided"
+    },
+    {
+      "code": 6001,
+      "name": "AccountAlreadyInitialized",
+      "msg": "Account is already initialized"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidInstructionData",
+      "msg": "Invalid instruction data"
+    },
+    {
+      "code": 6003,
+      "name": "InsufficientFunds",
+      "msg": "Insufficient funds for operation"
+    },
+    {
+      "code": 6004,
+      "name": "UninitializedAccount",
+      "msg": "Account is not initialized"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidItemType",
+      "msg": "Invalid item type"
+    },
+    {
+      "code": 6006,
+      "name": "ItemAlreadyConsumed",
+      "msg": "Item is already consumed"
+    },
+    {
+      "code": 6007,
+      "name": "PlayerDoesNotOwnItem",
+      "msg": "Player does not own this item"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidItemDefinition",
+      "msg": "Invalid item definition"
+    },
+    {
+      "code": 6009,
+      "name": "ItemCannotBeConsumed",
+      "msg": "Item cannot be consumed"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidPrice",
+      "msg": "Invalid price specified"
+    },
+    {
+      "code": 6011,
+      "name": "ListingNotActive",
+      "msg": "Listing is not active"
+    },
+    {
+      "code": 6012,
+      "name": "CannotBuyOwnItem",
+      "msg": "Cannot buy your own item"
+    },
+    {
+      "code": 6013,
+      "name": "UnauthorizedSeller",
+      "msg": "Unauthorized seller"
+    },
+    {
+      "code": 6014,
+      "name": "UnauthorizedAdmin",
+      "msg": "Unauthorized admin"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidFeePercentage",
+      "msg": "Invalid fee percentage (max 10%)"
+    },
+    {
+      "code": 6016,
+      "name": "ItemNameTooLong",
+      "msg": "Item name too long (max 50 characters)"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidAmount",
+      "msg": "Invalid amount"
+    },
+    {
+      "code": 6018,
+      "name": "UnauthorizedBuyer",
+      "msg": "Unauthorized buyer"
+    },
+    {
+      "code": 6019,
+      "name": "MissingTokenAccounts",
+      "msg": "Missing required token accounts for wallet payment"
+    },
+    {
+      "code": 6020,
+      "name": "UnauthorizedMint",
+      "msg": "Unauthorized minting authority"
+    },
+    {
+      "code": 6021,
+      "name": "UnauthorizedBurn",
+      "msg": "Unauthorized burn authority"
+    },
+    {
+      "code": 6022,
+      "name": "InsufficientBalance",
+      "msg": "Insufficient cOBX balance"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidPaymentType",
+      "msg": "Invalid payment type"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidPlayerAccount",
+      "msg": "Invalid player account PDA"
+    },
+    {
+      "code": 6025,
+      "name": "UnauthorizedCharacter",
+      "msg": "Unauthorized character operation"
+    },
+    {
+      "code": 6026,
+      "name": "NoActiveCharacter",
+      "msg": "No active character selected"
+    },
+    {
+      "code": 6027,
+      "name": "CharacterLimitReached",
+      "msg": "Character limit reached (max 5)"
+    },
+    {
+      "code": 6028,
+      "name": "InvalidCharacterName",
+      "msg": "Invalid character name"
+    },
+    {
+      "code": 6029,
+      "name": "InvalidCharacterClass",
+      "msg": "Invalid character class"
+    }
+  ],
+  "types": [
+    {
+      "name": "ActivePlayerCNFTChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_active",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "new_active",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "COBXRewardEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_minted",
+            "type": "u64"
+          },
+          {
+            "name": "total_lifetime",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CharacterCNFTAdded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "character_count",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CharacterCNFTRemoved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "character_count",
+            "type": "u8"
+          },
+          {
+            "name": "new_active",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CharacterCNFTWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "to_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "character_count",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CharacterConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "player_merkle_tree",
+            "type": "pubkey"
+          },
+          {
+            "name": "collection_mint",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "obx_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "cobx_mint",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositCompleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "obx_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "cobx_minted",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ItemCategory",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Material"
+          },
+          {
+            "name": "Consumable"
+          },
+          {
+            "name": "Equipment"
+          },
+          {
+            "name": "Weapon"
+          },
+          {
+            "name": "Armor"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ItemPurchased",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "tree_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "seller_proceeds",
+            "type": "u64"
+          },
+          {
+            "name": "payment_type",
+            "type": {
+              "defined": {
+                "name": "PaymentType"
+              }
+            }
+          },
+          {
+            "name": "item_name",
+            "type": "string"
+          },
+          {
+            "name": "category",
+            "type": {
+              "defined": {
+                "name": "ItemCategory"
+              }
+            }
+          },
+          {
+            "name": "rarity",
+            "type": {
+              "defined": {
+                "name": "ItemRarity"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ItemRarity",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Common"
+          },
+          {
+            "name": "Uncommon"
+          },
+          {
+            "name": "Rare"
+          },
+          {
+            "name": "Epic"
+          },
+          {
+            "name": "Legendary"
+          },
+          {
+            "name": "Mythic"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Listing",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seller",
+            "docs": [
+              "The wallet of the player who listed the item"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "seller_pda",
+            "docs": [
+              "The seller's Player PDA where the cNFT is stored"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_id",
+            "docs": [
+              "The asset ID of the cNFT being sold (Metaplex Bubblegum compressed NFT)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "tree_id",
+            "docs": [
+              "The merkle tree containing the cNFT"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "docs": [
+              "The asking price in OBX tokens"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "payment_type",
+            "docs": [
+              "Payment type: Virtual (database) or Wallet (on-chain)"
+            ],
+            "type": {
+              "defined": {
+                "name": "PaymentType"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Timestamp when the listing was created"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "category",
+            "docs": [
+              "Category of the item (for filtering)"
+            ],
+            "type": {
+              "defined": {
+                "name": "ItemCategory"
+              }
+            }
+          },
+          {
+            "name": "rarity",
+            "docs": [
+              "Rarity of the item (for filtering and display)"
+            ],
+            "type": {
+              "defined": {
+                "name": "ItemRarity"
+              }
+            }
+          },
+          {
+            "name": "item_name",
+            "docs": [
+              "Item name for display purposes"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "is_active",
+            "docs": [
+              "Whether this listing is still active"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketplaceStats",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "total_listings",
+            "docs": [
+              "Total number of listings created"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_sales",
+            "docs": [
+              "Total number of successful sales"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_volume",
+            "docs": [
+              "Total OBX traded through marketplace"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fee_percentage",
+            "docs": [
+              "Marketplace fee percentage (basis points, e.g., 500 = 5%)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury account for collecting fees"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Admin account that can update settings"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PaymentType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "COBX"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayerAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "web2_id",
+            "type": {
+              "option": "string"
+            }
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "class",
+            "type": "u8"
+          },
+          {
+            "name": "level",
+            "type": "u8"
+          },
+          {
+            "name": "wins",
+            "type": "u32"
+          },
+          {
+            "name": "losses",
+            "type": "u32"
+          },
+          {
+            "name": "lifetime_obx_earned",
+            "type": "u64"
+          },
+          {
+            "name": "lifetime_exp_spent",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayerCNFTCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "player_name",
+            "type": "string"
+          },
+          {
+            "name": "metadata_uri",
+            "type": "string"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayerCNFTUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_metadata_uri",
+            "type": "string"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawalCompleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "cobx_burned",
+            "type": "u64"
+          },
+          {
+            "name": "obx_received",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ]
+}
